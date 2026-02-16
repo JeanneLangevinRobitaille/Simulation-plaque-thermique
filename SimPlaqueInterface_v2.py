@@ -4,8 +4,6 @@ from matplotlib.animation import FuncAnimation
 import tkinter as tk
 from tkinter import ttk
 
-#This is a new comment marking my new git push
-
 #Fenetre de l'interface
 #==========================
 root = tk.Tk()
