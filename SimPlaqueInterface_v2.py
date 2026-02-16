@@ -11,7 +11,6 @@ root.title("Simulateur de plaque asservie en température")
 root.geometry('1000x1100')
 running = False
 
-
 # Variables de sortie
 # ==========================
 data_out = None
