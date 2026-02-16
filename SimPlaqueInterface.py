@@ -32,7 +32,9 @@ params = {
     "alpha": tk.DoubleVar(value=97),
     "rho": tk.DoubleVar(value=2.7e-3),
     "Cp": tk.DoubleVar(value=0.9),
-    "h": tk.DoubleVar(value=5e-5)}
+    "h": tk.DoubleVar(value=5e-5),
+    "coord_T1": tk.StringVar(value = "(0,0)"),
+    }
 
 #Affichage des sections
 #==========================
@@ -82,6 +84,11 @@ field(frame_sim, 2, "Resolution", params["res"], "N x N")
 field(frame_sim, 3, "Température initiale", params["T0_C"], "°C")
 field(frame_sim, 4, "Température ambiante", params["Tamb_C"], "°C")
 
+section_title("Coordonnées d'intérêt")
+frame_adv = ttk.Frame(root)
+frame_adv.pack(anchor="w")
+field(frame_sim, 0, "T1", params["coord_T1"], "(x,y)")
+
 section_title("Paramètres physiques")
 frame_adv = ttk.Frame(root)
 frame_adv.pack(anchor="w")
@@ -90,6 +97,7 @@ field(frame_adv, 0, "α (diffusivité)", params["alpha"], "mm²/s")
 field(frame_adv, 1, "ρ (densité)", params["rho"], "kg/mm³")
 field(frame_adv, 2, "Cp", params["Cp"], "J/mg·K")
 field(frame_adv, 3, "h (convection)", params["h"], "W/mm²·K")
+
 
 #Simulation thermique
 #==========================
