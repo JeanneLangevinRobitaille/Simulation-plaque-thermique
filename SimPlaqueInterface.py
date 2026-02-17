@@ -25,16 +25,24 @@ params = {
     "P_W": tk.DoubleVar(value=1.0),
     "t_s": tk.DoubleVar(value=150),
     "res": tk.DoubleVar(value=50),
-    "T0_C": tk.DoubleVar(value=20),
     "Tamb_C": tk.DoubleVar(value=20),
     "alpha": tk.DoubleVar(value=97),
     "rho": tk.DoubleVar(value=2.7e-3),
     "Cp": tk.DoubleVar(value=0.9),
     "h": tk.DoubleVar(value=5e-5),
-    "coord_T1": tk.StringVar(value="(0,0)"),
-    "coord_T2": tk.StringVar(value="(0,0)"),
-    "coord_T3": tk.StringVar(value="(0,0)"),
-    "coord_Resistance": tk.StringVar(value="(0,0)"),
+
+    #Coordonnées d'intérêt en mm
+    "T1_x_mm": tk.DoubleVar(value=0),
+    "T1_y_mm": tk.DoubleVar(value=0),
+
+    "T2_x_mm": tk.DoubleVar(value=0),
+    "T2_y_mm": tk.DoubleVar(value=0),
+
+    "T3_x_mm": tk.DoubleVar(value=0),
+    "T3_y_mm": tk.DoubleVar(value=0),
+
+    "coord_Resistance_x_mm": tk.DoubleVar(value=0),
+    "coord_Resistance_y_mm": tk.DoubleVar(value=0),
     "val_Resistance": tk.DoubleVar(value=0.0)
 }
 
@@ -50,10 +58,11 @@ def field(parent, row, label, var, unit):
     ttk.Entry(parent, textvariable=var, width=10).grid(row=row, column=1)
     ttk.Label(parent, text=unit).grid(row=row, column=2, padx=5)
 
-def coord_field(parent, row, label, var, unit):
+def coord_field(parent, row, label, varx, vary, unit):
     ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(5, 10))
-    ttk.Entry(parent, textvariable=var, width=10).grid(row=row, column=1)
-    ttk.Label(parent, text=unit).grid(row=row, column=2, padx=5)
+    ttk.Entry(parent, textvariable=varx, width=7).grid(row=row, column=1)
+    ttk.Entry(parent, textvariable=vary, width=7).grid(row=row, column=2)
+    ttk.Label(parent, text=unit).grid(row=row, column=3, padx=5)
 
 
 #Texte d'instruction
@@ -75,6 +84,7 @@ ttk.Label(header_frame,
 
 ttk.Separator(root, orient="horizontal").pack(fill="x", pady=10)
 
+
 #Structure principale
 #==========================
 main_frame = ttk.Frame(root)
@@ -92,7 +102,6 @@ left_frame.grid(row=0, column=0, sticky="nw")
 section_title(left_frame, "Paramètres de la plaque")
 frame_geo = ttk.Frame(left_frame)
 frame_geo.pack(anchor="w")
-frame_geo.grid_columnconfigure(0, weight=1)
 
 field(frame_geo, 0, "Longueur", params["L_mm"], "mm")
 field(frame_geo, 1, "Largeur", params["l_mm"], "mm")
@@ -101,18 +110,15 @@ field(frame_geo, 2, "Épaisseur", params["e_mm"], "mm")
 section_title(left_frame, "Paramètres de la simulation")
 frame_sim = ttk.Frame(left_frame)
 frame_sim.pack(anchor="w")
-frame_sim.grid_columnconfigure(0, weight=1)
 
 field(frame_sim, 0, "Puissance entrée", params["P_W"], "W")
 field(frame_sim, 1, "Temps simulation", params["t_s"], "s")
 field(frame_sim, 2, "Résolution", params["res"], "N x N")
-field(frame_sim, 3, "Température initiale", params["T0_C"], "°C")
-field(frame_sim, 4, "Température ambiante", params["Tamb_C"], "°C")
+field(frame_sim, 3, "Température ambiante", params["Tamb_C"], "°C")
 
 section_title(left_frame, "Paramètres physiques")
 frame_phys = ttk.Frame(left_frame)
 frame_phys.pack(anchor="w")
-frame_phys.grid_columnconfigure(0, weight=1)
 
 field(frame_phys, 0, "α (diffusivité)", params["alpha"], "mm²/s")
 field(frame_phys, 1, "ρ (densité)", params["rho"], "kg/mm³")
@@ -128,19 +134,33 @@ right_frame.grid(row=0, column=1, sticky="nw", padx=(40,0))
 section_title(right_frame, "Coordonnées d'intérêt")
 frame_coords = ttk.Frame(right_frame)
 frame_coords.pack(anchor="w")
-frame_coords.grid_columnconfigure(0, weight=1)
 
-coord_field(frame_coords, 0, "T1", params["coord_T1"], "(x,y)")
-coord_field(frame_coords, 1, "T2", params["coord_T2"], "(x,y)")
-coord_field(frame_coords, 2, "T3", params["coord_T3"], "(x,y)")
+coord_field(frame_coords, 0, "T1",
+            params["T1_x_mm"],
+            params["T1_y_mm"],
+            "(x,y) mm")
+
+coord_field(frame_coords, 1, "T2",
+            params["T2_x_mm"],
+            params["T2_y_mm"],
+            "(x,y) mm")
+
+coord_field(frame_coords, 2, "T3",
+            params["T3_x_mm"],
+            params["T3_y_mm"],
+            "(x,y) mm")
 
 section_title(right_frame, "Perturbation")
 frame_pert = ttk.Frame(right_frame)
 frame_pert.pack(anchor="w")
-frame_pert.grid_columnconfigure(0, weight=1)
 
-coord_field(frame_pert, 0, "Coordonnées", params["coord_Resistance"], "(x,y)")
-coord_field(frame_pert, 1, "Valeur", params["val_Resistance"], "ohm")
+coord_field(frame_pert, 0, "Position",
+            params["coord_Resistance_x_mm"],
+            params["coord_Resistance_y_mm"],
+            "mm")
+
+field(frame_pert, 1, "Valeur",
+      params["val_Resistance"], "ohm")
 
 
 #Simulation thermique
@@ -148,38 +168,33 @@ coord_field(frame_pert, 1, "Valeur", params["val_Resistance"], "ohm")
 def simulation(data):
     global running, data_out, results_out
 
-    input_power = data["P_W"]
-    start_temp = data["T0_C"]
-    sim_time = data["t_s"]
     resolution = int(data["res"])
-
     width = data["l_mm"]
     length = data["L_mm"]
-    thickness = data["e_mm"]
-    alpha = data["alpha"]
-    rho = data["rho"]
-    cp = data["Cp"]
-    h = data["h"]
-    T_amb = data["Tamb_C"]
 
-    x = np.linspace(-width/2, width/2, resolution+1)
+    x = np.linspace(0, width, resolution+1)
     y = np.linspace(0, length, resolution+1)
     X, Y = np.meshgrid(x, y)
 
-    T = np.full_like(X, start_temp, dtype=float)
-    Tn = T.copy()
+    #Température initiale = ambiante
+    T = np.full_like(X, data["Tamb_C"], dtype=float)
 
     dx = width / resolution
     dy = length / resolution
-    centre = resolution // 2
 
-    dt = 0.2 * min(dx, dy)**2 / alpha
-    steps_per_frame = 200
+    #Conversion mm -> indice grille
+    def mm_to_index(x_mm, y_mm):
+        ix = int((x_mm / width) * resolution)
+        iy = int((y_mm / length) * resolution)
+        ix = max(0, min(resolution, ix))
+        iy = max(0, min(resolution, iy))
+        return ix, iy
 
-    volume_entree = (2*dx)*(2*dy)*thickness
-    Q_entree = input_power / volume_entree
+    T1_ix, T1_iy = mm_to_index(data["T1_x_mm"], data["T1_y_mm"])
+    T2_ix, T2_iy = mm_to_index(data["T2_x_mm"], data["T2_y_mm"])
+    T3_ix, T3_iy = mm_to_index(data["T3_x_mm"], data["T3_y_mm"])
 
-    temps, Tin, Tmid, Tout = [], [], [], []
+    temps, T1_list, T2_list, T3_list = [], [], [], []
 
     fig = plt.figure(figsize=(11,5))
     ax1 = fig.add_subplot(121, projection='3d')
@@ -187,64 +202,39 @@ def simulation(data):
 
     surf = ax1.plot_surface(X, Y, T, cmap='viridis')
 
-    l1, = ax2.plot([], [], label="Actionneur")
-    l2, = ax2.plot([], [], label="Centre")
-    l3, = ax2.plot([], [], label="Sortie")
+    l1, = ax2.plot([], [], label="T1")
+    l2, = ax2.plot([], [], label="T2")
+    l3, = ax2.plot([], [], label="T3")
 
-    ax2.set_xlim(0, sim_time)
-    ax2.set_ylim(start_temp, start_temp + 5)
-    ax2.set_xlabel("t [s]")
-    ax2.set_ylabel("T [°C]")
     ax2.legend()
 
     time_sim = 0
-
-    def step(T, Tn):
-        Tn[1:-1,1:-1] = T[1:-1,1:-1] + alpha*dt*(
-            (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
-            (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
-
-        Tn[0:2, centre-1:centre+1] += Q_entree * dt / (rho * cp)
-        Tn[1:-1,1:-1] -= (h*dt/(rho*cp*thickness))*(T[1:-1,1:-1]-T_amb)
-
-        Tn[0,:]  = Tn[1,:]
-        Tn[-1,:] = Tn[-2,:]
-        Tn[:,0]  = Tn[:,1]
-        Tn[:,-1] = Tn[:,-2]
-
-        return Tn
+    dt = 0.01
 
     def update(frame):
-        nonlocal T, Tn, time_sim, surf
+        nonlocal time_sim, surf
 
         if not running:
             plt.close(fig)
             return
 
-        for _ in range(steps_per_frame):
-            if time_sim >= sim_time:
-                break
-            Tn = step(T, Tn)
-            T, Tn = Tn, T
-            time_sim += dt
-
         temps.append(time_sim)
-        Tin.append(T[0, centre])
-        Tmid.append(T[centre, centre])
-        Tout.append(T[-1, centre])
+        T1_list.append(T[T1_iy, T1_ix])
+        T2_list.append(T[T2_iy, T2_ix])
+        T3_list.append(T[T3_iy, T3_ix])
 
-        surf.remove()
-        surf = ax1.plot_surface(X, Y, T, cmap='viridis')
+        l1.set_data(temps, T1_list)
+        l2.set_data(temps, T2_list)
+        l3.set_data(temps, T3_list)
 
-        l1.set_data(temps, Tin)
-        l2.set_data(temps, Tmid)
-        l3.set_data(temps, Tout)
+        time_sim += dt
 
     ani = FuncAnimation(fig, update, interval=40)
     plt.show()
 
     data_out = data.copy()
-    results_out = {"temps": temps, "Tin": Tin, "Tmid": Tmid, "Tout": Tout}
+    results_out = {"temps": temps, "T1": T1_list,
+                   "T2": T2_list, "T3": T3_list}
 
 
 #Contrôles
