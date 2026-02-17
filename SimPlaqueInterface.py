@@ -4,9 +4,9 @@ from matplotlib.animation import FuncAnimation
 import tkinter as tk
 from tkinter import ttk
 
-# ==========================
-# Fenêtre principale
-# ==========================
+
+#Fenêtre principale
+#==========================
 root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
 root.geometry('1200x900')
@@ -15,9 +15,9 @@ running = False
 data_out = None
 results_out = None
 
-# ==========================
-# Paramètres
-# ==========================
+
+#Paramètres
+#==========================
 params = {
     "L_mm": tk.DoubleVar(value=117.5),
     "l_mm": tk.DoubleVar(value=61.5),
@@ -38,9 +38,9 @@ params = {
     "val_Resistance": tk.DoubleVar(value=0.0)
 }
 
-# ==========================
-# Fonctions affichage
-# ==========================
+
+#Fonctions affichage
+#==========================
 def section_title(parent, text):
     ttk.Label(parent, text=text,
               font=("Arial", 11, "bold")).pack(anchor="w", pady=(10, 4))
@@ -55,9 +55,9 @@ def coord_field(parent, row, label, var, unit):
     ttk.Entry(parent, textvariable=var, width=10).grid(row=row, column=1)
     ttk.Label(parent, text=unit).grid(row=row, column=2, padx=5)
 
-# ==========================
-# Texte en haut
-# ==========================
+
+#Texte d'instruction
+#==========================
 header_frame = ttk.Frame(root)
 header_frame.pack(fill="x", pady=(15, 10))
 
@@ -75,17 +75,16 @@ ttk.Label(header_frame,
 
 ttk.Separator(root, orient="horizontal").pack(fill="x", pady=10)
 
-# ==========================
-# Structure principale
-# ==========================
+#Structure principale
+#==========================
 main_frame = ttk.Frame(root)
 main_frame.pack(fill="both", expand=True, padx=30)
 
 main_frame.columnconfigure(0, weight=3)
 main_frame.columnconfigure(1, weight=1)
 
-# ==========================
-# COLONNE GAUCHE
+
+#Colonne gauche
 # ==========================
 left_frame = ttk.Frame(main_frame)
 left_frame.grid(row=0, column=0, sticky="nw")
@@ -120,9 +119,9 @@ field(frame_phys, 1, "ρ (densité)", params["rho"], "kg/mm³")
 field(frame_phys, 2, "Cp (calorifique massique)", params["Cp"], "J/mg·K")
 field(frame_phys, 3, "h (convection)", params["h"], "W/mm²·K")
 
-# ==========================
-# COLONNE DROITE
-# ==========================
+
+#Colonne droite
+#==========================
 right_frame = ttk.Frame(main_frame)
 right_frame.grid(row=0, column=1, sticky="nw", padx=(40,0))
 
@@ -143,9 +142,9 @@ frame_pert.grid_columnconfigure(0, weight=1)
 coord_field(frame_pert, 0, "Coordonnées", params["coord_Resistance"], "(x,y)")
 coord_field(frame_pert, 1, "Valeur", params["val_Resistance"], "ohm")
 
-# ==========================
-# Simulation thermique
-# ==========================
+
+#Simulation thermique
+#==========================
 def simulation(data):
     global running, data_out, results_out
 
@@ -247,9 +246,9 @@ def simulation(data):
     data_out = data.copy()
     results_out = {"temps": temps, "Tin": Tin, "Tmid": Tmid, "Tout": Tout}
 
-# ==========================
-# Contrôles
-# ==========================
+
+#Contrôles
+#==========================
 def start():
     global running
     if not running:
