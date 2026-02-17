@@ -4,20 +4,23 @@ from matplotlib.animation import FuncAnimation
 import tkinter as tk
 from tkinter import ttk
 
-
-#Fenêtre principale
+#Fenetre de l'interface
 #==========================
 root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
-root.geometry('1200x900')
+root.geometry('1000x1100')
 
 running = False
+
+# Variables de sortie
+# ==========================
 data_out = None
 results_out = None
 
-
-#Paramètres
+#Paramètres avec valeurs préfaites
 #==========================
+entry_filepath = ""
+exit_filepath = ""
 params = {
     "L_mm": tk.DoubleVar(value=117.5),
     "l_mm": tk.DoubleVar(value=61.5),
@@ -25,219 +28,189 @@ params = {
     "P_W": tk.DoubleVar(value=1.0),
     "t_s": tk.DoubleVar(value=150),
     "res": tk.DoubleVar(value=50),
+    "T0_C": tk.DoubleVar(value=20),
     "Tamb_C": tk.DoubleVar(value=20),
     "alpha": tk.DoubleVar(value=97),
     "rho": tk.DoubleVar(value=2.7e-3),
     "Cp": tk.DoubleVar(value=0.9),
-    "h": tk.DoubleVar(value=5e-5),
+    "h": tk.DoubleVar(value=5e-5)}
 
-    #Coordonnées d'intérêt en mm
-    "T1_x_mm": tk.DoubleVar(value=0),
-    "T1_y_mm": tk.DoubleVar(value=0),
-
-    "T2_x_mm": tk.DoubleVar(value=0),
-    "T2_y_mm": tk.DoubleVar(value=0),
-
-    "T3_x_mm": tk.DoubleVar(value=0),
-    "T3_y_mm": tk.DoubleVar(value=0),
-
-    "coord_Resistance_x_mm": tk.DoubleVar(value=0),
-    "coord_Resistance_y_mm": tk.DoubleVar(value=0),
-    "val_Resistance": tk.DoubleVar(value=0.0)
-}
-
-
-#Fonctions affichage
+#Affichage des sections
 #==========================
-def section_title(parent, text):
-    ttk.Label(parent, text=text,
-              font=("Arial", 11, "bold")).pack(anchor="w", pady=(10, 4))
+def instructions(text):
+    ttk.Label(root, text=text,
+               font=("Arial", 11, "italic")).pack(anchor="n", pady=(10, 4))
+
+
+def section_title(text):
+    ttk.Label(root, text=text,
+               font=("Arial", 11, "bold")).pack(anchor="w", pady=(10, 4))
 
 def field(parent, row, label, var, unit):
-    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(5, 10))
-    ttk.Entry(parent, textvariable=var, width=10).grid(row=row, column=1)
-    ttk.Label(parent, text=unit).grid(row=row, column=2, padx=5)
-
-def coord_field(parent, row, label, varx, vary, unit):
-    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(5, 10))
-    ttk.Entry(parent, textvariable=varx, width=7).grid(row=row, column=1)
-    ttk.Entry(parent, textvariable=vary, width=7).grid(row=row, column=2)
+    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(30, 10))
+    ttk.Entry(parent, textvariable=var, width=10).grid(row=row, column=2)
     ttk.Label(parent, text=unit).grid(row=row, column=3, padx=5)
 
-
-#Texte d'instruction
+#Sections
 #==========================
-header_frame = ttk.Frame(root)
-header_frame.pack(fill="x", pady=(15, 10))
+instructions("Appuyer sur Go pour activer la simulation")
+instructions("Appuyer sur Cancel pour l'interrompre et/ou changer ses paramètres")
+instructions("Fermer la fenêtre pour sauvegarder les données brutes de la simulation")
+instructions("-"*950)
 
-ttk.Label(header_frame,
-          text="Appuyer sur Go pour activer la simulation",
-          font=("Arial", 11, "italic")).pack()
+section_title("Chemin d'accès des fichiers")
+frame_geo = ttk.Frame(root)
+frame_geo.pack(anchor="w")
 
-ttk.Label(header_frame,
-          text="Appuyer sur Cancel pour l'interrompre et/ou changer ses paramètres",
-          font=("Arial", 11, "italic")).pack()
+field(frame_geo, 0, "Ficher d'entrée", entry_filepath, '')
+field(frame_geo, 1, "Ficher de sortie", exit_filepath, '')
 
-ttk.Label(header_frame,
-          text="Fermer la fenêtre pour sauvegarder les données brutes de la simulation",
-          font=("Arial", 11, "italic")).pack()
-
-ttk.Separator(root, orient="horizontal").pack(fill="x", pady=10)
-
-
-#Structure principale
-#==========================
-main_frame = ttk.Frame(root)
-main_frame.pack(fill="both", expand=True, padx=30)
-
-main_frame.columnconfigure(0, weight=3)
-main_frame.columnconfigure(1, weight=1)
-
-
-#Colonne gauche
-# ==========================
-left_frame = ttk.Frame(main_frame)
-left_frame.grid(row=0, column=0, sticky="nw")
-
-section_title(left_frame, "Paramètres de la plaque")
-frame_geo = ttk.Frame(left_frame)
+section_title("Paramètres de la plaque")
+frame_geo = ttk.Frame(root)
 frame_geo.pack(anchor="w")
 
 field(frame_geo, 0, "Longueur", params["L_mm"], "mm")
 field(frame_geo, 1, "Largeur", params["l_mm"], "mm")
 field(frame_geo, 2, "Épaisseur", params["e_mm"], "mm")
 
-section_title(left_frame, "Paramètres de la simulation")
-frame_sim = ttk.Frame(left_frame)
+section_title("Paramètres de la simulation")
+frame_sim = ttk.Frame(root)
 frame_sim.pack(anchor="w")
 
 field(frame_sim, 0, "Puissance entrée", params["P_W"], "W")
-field(frame_sim, 1, "Temps simulation", params["t_s"], "s")
-field(frame_sim, 2, "Résolution", params["res"], "N x N")
-field(frame_sim, 3, "Température ambiante", params["Tamb_C"], "°C")
+field(frame_sim, 1, "Temps de simulation", params["t_s"], "s")
+field(frame_sim, 2, "Resolution", params["res"], "N x N")
+field(frame_sim, 3, "Température initiale", params["T0_C"], "°C")
+field(frame_sim, 4, "Température ambiante", params["Tamb_C"], "°C")
 
-section_title(left_frame, "Paramètres physiques")
-frame_phys = ttk.Frame(left_frame)
-frame_phys.pack(anchor="w")
+section_title("Paramètres physiques")
+frame_adv = ttk.Frame(root)
+frame_adv.pack(anchor="w")
 
-field(frame_phys, 0, "α (diffusivité)", params["alpha"], "mm²/s")
-field(frame_phys, 1, "ρ (densité)", params["rho"], "kg/mm³")
-field(frame_phys, 2, "Cp (calorifique massique)", params["Cp"], "J/mg·K")
-field(frame_phys, 3, "h (convection)", params["h"], "W/mm²·K")
-
-
-#Colonne droite
-#==========================
-right_frame = ttk.Frame(main_frame)
-right_frame.grid(row=0, column=1, sticky="nw", padx=(40,0))
-
-section_title(right_frame, "Coordonnées d'intérêt")
-frame_coords = ttk.Frame(right_frame)
-frame_coords.pack(anchor="w")
-
-coord_field(frame_coords, 0, "T1",
-            params["T1_x_mm"],
-            params["T1_y_mm"],
-            "(x,y) mm")
-
-coord_field(frame_coords, 1, "T2",
-            params["T2_x_mm"],
-            params["T2_y_mm"],
-            "(x,y) mm")
-
-coord_field(frame_coords, 2, "T3",
-            params["T3_x_mm"],
-            params["T3_y_mm"],
-            "(x,y) mm")
-
-section_title(right_frame, "Perturbation")
-frame_pert = ttk.Frame(right_frame)
-frame_pert.pack(anchor="w")
-
-coord_field(frame_pert, 0, "Position",
-            params["coord_Resistance_x_mm"],
-            params["coord_Resistance_y_mm"],
-            "mm")
-
-field(frame_pert, 1, "Valeur",
-      params["val_Resistance"], "ohm")
-
+field(frame_adv, 0, "α (diffusivité)", params["alpha"], "mm²/s")
+field(frame_adv, 1, "ρ (densité)", params["rho"], "kg/mm³")
+field(frame_adv, 2, "Cp", params["Cp"], "J/mg·K")
+field(frame_adv, 3, "h (convection)", params["h"], "W/mm²·K")
 
 #Simulation thermique
 #==========================
 def simulation(data):
     global running, data_out, results_out
 
+    input_power = data["P_W"]
+    start_temp = data["T0_C"]
+    sim_time = data["t_s"]
     resolution = int(data["res"])
+
     width = data["l_mm"]
     length = data["L_mm"]
+    thickness = data["e_mm"]
+    alpha = data["alpha"]
+    rho = data["rho"]
+    cp = data["Cp"]
+    h = data["h"]
+    T_amb = data["Tamb_C"]
 
-    x = np.linspace(0, width, resolution+1)
+    x = np.linspace(-width/2, width/2, resolution+1)
     y = np.linspace(0, length, resolution+1)
     X, Y = np.meshgrid(x, y)
 
-    #Température initiale = ambiante
-    T = np.full_like(X, data["Tamb_C"], dtype=float)
+    T = np.full_like(X, start_temp, dtype=float)
+    Tn = T.copy()
 
     dx = width / resolution
     dy = length / resolution
+    centre = resolution // 2
 
-    #Conversion mm -> indice grille
-    def mm_to_index(x_mm, y_mm):
-        ix = int((x_mm / width) * resolution)
-        iy = int((y_mm / length) * resolution)
-        ix = max(0, min(resolution, ix))
-        iy = max(0, min(resolution, iy))
-        return ix, iy
+    dt = 0.2 * min(dx, dy)**2 / alpha
+    steps_per_frame = 250
 
-    T1_ix, T1_iy = mm_to_index(data["T1_x_mm"], data["T1_y_mm"])
-    T2_ix, T2_iy = mm_to_index(data["T2_x_mm"], data["T2_y_mm"])
-    T3_ix, T3_iy = mm_to_index(data["T3_x_mm"], data["T3_y_mm"])
+    display_every = 10
+    frame_count = 0
 
-    temps, T1_list, T2_list, T3_list = [], [], [], []
+    volume_entree = (2*dx)*(2*dy)*thickness
+    Q_entree = input_power / volume_entree
+
+    temps, Tin, Tmid, Tout = [], [], [], []
 
     fig = plt.figure(figsize=(11,5))
-    ax1 = fig.add_subplot(121, projection='3d')
-    ax2 = fig.add_subplot(122)
 
-    surf = ax1.plot_surface(X, Y, T, cmap='viridis')
+    #Positionnement des fenetres
+    manager = plt.get_current_fig_manager()
+    screen_width = manager.window.winfo_screenwidth()
+    fig_width = 1100
+    manager.window.wm_geometry(f"+{screen_width - fig_width}+50")
 
-    l1, = ax2.plot([], [], label="T1")
-    l2, = ax2.plot([], [], label="T2")
-    l3, = ax2.plot([], [], label="T3")
+    time_sim = 0.0
 
-    ax2.legend()
+    surface_temperature = fig.add_subplot(121, projection='3d')
+    surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
+    surface_temperature.set_zlim(start_temp,
+                                 start_temp + (1 if input_power < 1 else 2))
+    
+    ligne_temperature = fig.add_subplot(122)
+    l_entree, = ligne_temperature.plot([], [], label="Actionneur")
+    l_centre, = ligne_temperature.plot([], [], label="Thermistance")
+    l_sortie, = ligne_temperature.plot([], [], label="Point laser")
 
-    time_sim = 0
-    dt = 0.01
+    ligne_temperature.set_xlim(0, sim_time)
+    ligne_temperature.set_ylim(start_temp, 
+                               start_temp + 5)
+    ligne_temperature.set_xlabel("t [s]")
+    ligne_temperature.set_ylabel("T [°C]")
+    ligne_temperature.legend()
+
+    def diapo(T, Tn):
+        Tn[1:-1,1:-1] = T[1:-1,1:-1] + alpha*dt*(
+            (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
+            (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
+
+        Tn[0:2, centre-1:centre+1] += Q_entree * dt / (rho * cp)
+        Tn[1:-1, 1:-1] -= (h*dt/(rho*cp*thickness))*(T[1:-1,1:-1]-T_amb)
+
+        Tn[0,:]  = Tn[1,:]
+        Tn[-1,:] = Tn[-2,:]
+        Tn[:,0]  = Tn[:,1]
+        Tn[:,-1] = Tn[:,-2]
+
+        return Tn
 
     def update(frame):
-        nonlocal time_sim, surf
+        nonlocal T, Tn, time_sim, surf, frame_count
 
         if not running:
             plt.close(fig)
             return
 
+        for _ in range(steps_per_frame):
+            if time_sim >= sim_time:
+                break
+            Tn = diapo(T, Tn)
+            T, Tn = Tn, T
+            time_sim += dt
+
         temps.append(time_sim)
-        T1_list.append(T[T1_iy, T1_ix])
-        T2_list.append(T[T2_iy, T2_ix])
-        T3_list.append(T[T3_iy, T3_ix])
+        Tin.append(T[0, centre])
+        Tmid.append(T[centre, centre])
+        Tout.append(T[-1, centre])
 
-        l1.set_data(temps, T1_list)
-        l2.set_data(temps, T2_list)
-        l3.set_data(temps, T3_list)
+        frame_count += 1
+        if frame_count % display_every == 0:
+            surf.remove()
+            surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
 
-        time_sim += dt
+        l_entree.set_data(temps, Tin)
+        l_centre.set_data(temps, Tmid)
+        l_sortie.set_data(temps, Tout)
+        ligne_temperature.set_title(f"t = {time_sim:.2f} s")
 
     ani = FuncAnimation(fig, update, interval=40)
     plt.show()
 
     data_out = data.copy()
-    results_out = {"temps": temps, "T1": T1_list,
-                   "T2": T2_list, "T3": T3_list}
+    results_out = {"temps": temps, "Tin": Tin, "Tmid": Tmid, "Tout": Tout}
 
-
-#Contrôles
+#Controle
 #==========================
 def start():
     global running
@@ -250,14 +223,16 @@ def cancel():
     global running
     running = False
 
-btn_frame = ttk.Frame(root)
-btn_frame.pack(pady=20)
+#Boutons
+#==========================
+frame_btn = ttk.Frame(root)
+frame_btn.pack(pady=45)
 
-tk.Button(btn_frame, text="GO", width=15,
+tk.Button(frame_btn, text="GO", width=15,
           bg="green", fg="white",
           command=start).pack(side="left", padx=10)
 
-tk.Button(btn_frame, text="Cancel", width=15,
+tk.Button(frame_btn, text="Cancel", width=15,
           bg="red", fg="white",
           command=cancel).pack(side="left", padx=10)
 
