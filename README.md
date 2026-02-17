@@ -1,2 +1,2 @@
 # Simulation-plaque-thermique
-La simulation de la plaque thermique pour le cours GPH-2104
+Version stable de la simulation de la plaque thermique du prototype pour le cours GPH-2104
