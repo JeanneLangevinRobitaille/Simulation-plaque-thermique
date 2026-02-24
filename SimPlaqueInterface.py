@@ -8,7 +8,7 @@ from tkinter import ttk
 #==========================
 root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
-root.geometry('1000x1100')
+root.geometry('1200x1050')
 
 running = False
 
@@ -26,71 +26,128 @@ params = {
     "l_mm": tk.DoubleVar(value=61.5),
     "e_mm": tk.DoubleVar(value=1.7),
     "P_W": tk.DoubleVar(value=1.0),
-    "t_s": tk.DoubleVar(value=250),
+    "t_s": tk.DoubleVar(value=150),
     "res": tk.DoubleVar(value=50),
-    "T0_C": tk.DoubleVar(value=20),
     "Tamb_C": tk.DoubleVar(value=20),
     "alpha": tk.DoubleVar(value=97),
     "rho": tk.DoubleVar(value=2.7e-3),
     "Cp": tk.DoubleVar(value=0.9),
-    "h": tk.DoubleVar(value=5e-5)}
+    "h": tk.DoubleVar(value=5e-5),
+    "TEC_x_mm": tk.DoubleVar(value=0),
+    "TEC_y_mm": tk.DoubleVar(value=0),
+    "T1_x_mm": tk.DoubleVar(value=0),
+    "T1_y_mm": tk.DoubleVar(value=0),
+    "T2_x_mm": tk.DoubleVar(value=0),
+    "T2_y_mm": tk.DoubleVar(value=0),
+    "T3_x_mm": tk.DoubleVar(value=0),
+    "T3_y_mm": tk.DoubleVar(value=0),
+    "pert_x_mm": tk.DoubleVar(value=0),
+    "pert_y_mm": tk.DoubleVar(value=0),
+    "val_Resistance": tk.DoubleVar(value=0.0)
+    }
 
-#Affichage des sections
-#==========================
-def instructions(text):
-    ttk.Label(root, text=text,
-               font=("Arial", 11, "italic")).pack(anchor="n", pady=(10, 4))
-
-
-def section_title(text):
-    ttk.Label(root, text=text,
-               font=("Arial", 11, "bold")).pack(anchor="w", pady=(10, 4))
+#Fonctions affichage
+    #==========================
+def section_title(parent, text):
+    ttk.Label(parent, text=text,
+            font=("Arial", 11, "bold")).pack(anchor="w", pady=(10, 4))
 
 def field(parent, row, label, var, unit):
-    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(30, 10))
-    ttk.Entry(parent, textvariable=var, width=10).grid(row=row, column=2)
+    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(5, 10))
+    ttk.Entry(parent, textvariable=var, width=10).grid(row=row, column=1)
+    ttk.Label(parent, text=unit).grid(row=row, column=2, padx=5)
+
+def coord_field(parent, row, label, varx, vary, unit):
+    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(5, 10))
+    ttk.Entry(parent, textvariable=varx, width=5).grid(row=row, column=1)
+    ttk.Entry(parent, textvariable=vary, width=5).grid(row=row, column=2)
     ttk.Label(parent, text=unit).grid(row=row, column=3, padx=5)
 
-#Sections
+#Texte d'instruction
 #==========================
-instructions("Appuyer sur Go pour activer la simulation")
-instructions("Appuyer sur Cancel pour l'interrompre et/ou changer ses paramètres")
-instructions("Fermer la fenêtre pour sauvegarder les données brutes de la simulation")
-instructions("-"*950)
+header_frame = ttk.Frame(root)
+header_frame.pack(fill="x", pady=(15, 10))
+ttk.Label(header_frame,
+        text="Appuyer sur Go pour activer la simulation",
+        font=("Arial", 11, "italic")).pack()
+ttk.Label(header_frame,
+        text="Appuyer sur Cancel pour l'interrompre et/ou changer ses paramètres",
+        font=("Arial", 11, "italic")).pack()
+ttk.Label(header_frame,
+        text="Fermer la fenêtre pour sauvegarder les données brutes de la simulation",
+        font=("Arial", 11, "italic")).pack()
+ttk.Separator(root, orient="horizontal").pack(fill="x", pady=10)
 
-section_title("Chemin d'accès des fichiers")
-frame_geo = ttk.Frame(root)
+#Structure principale
+#==========================
+main_frame = ttk.Frame(root)
+main_frame.pack(fill="both", expand=True, padx=30)
+main_frame.columnconfigure(0, weight=3)
+main_frame.columnconfigure(1, weight=1)
+
+#Colonne gauche
+#==========================
+left_frame = ttk.Frame(main_frame)
+left_frame.grid(row=0, column=0, sticky="nw")
+
+section_title(left_frame, "Chemin d'accès des fichiers")
+frame_geo = ttk.Frame(left_frame)
 frame_geo.pack(anchor="w")
 
 field(frame_geo, 0, "Ficher d'entrée", entry_filepath, '')
 field(frame_geo, 1, "Ficher de sortie", exit_filepath, '')
 
-section_title("Paramètres de la plaque")
-frame_geo = ttk.Frame(root)
+#Section paramètres de la plaque
+section_title(left_frame, "Paramètres de la plaque")
+frame_geo = ttk.Frame(left_frame)
 frame_geo.pack(anchor="w")
-
 field(frame_geo, 0, "Longueur", params["L_mm"], "mm")
 field(frame_geo, 1, "Largeur", params["l_mm"], "mm")
 field(frame_geo, 2, "Épaisseur", params["e_mm"], "mm")
 
-section_title("Paramètres de la simulation")
-frame_sim = ttk.Frame(root)
+#Section paramètres de la simulation
+section_title(left_frame, "Paramètres de la simulation")
+frame_sim = ttk.Frame(left_frame)
 frame_sim.pack(anchor="w")
-
 field(frame_sim, 0, "Puissance entrée", params["P_W"], "W")
-field(frame_sim, 1, "Temps de simulation", params["t_s"], "s")
-field(frame_sim, 2, "Resolution", params["res"], "N x N")
-field(frame_sim, 3, "Température initiale", params["T0_C"], "°C")
-field(frame_sim, 4, "Température ambiante", params["Tamb_C"], "°C")
+field(frame_sim, 1, "Temps simulation", params["t_s"], "s")
+field(frame_sim, 2, "Résolution", params["res"], "N x N")
+field(frame_sim, 3, "Température ambiante", params["Tamb_C"], "°C")
 
-section_title("Paramètres physiques")
-frame_adv = ttk.Frame(root)
-frame_adv.pack(anchor="w")
+#Section paramètres physiques
+section_title(left_frame, "Paramètres physiques")
+frame_phys = ttk.Frame(left_frame)
+frame_phys.pack(anchor="w")
+field(frame_phys, 0, "α (diffusivité)", params["alpha"], "mm²/s")
+field(frame_phys, 1, "ρ (densité)", params["rho"], "kg/mm³")
+field(frame_phys, 2, "Cp (calorifique massique)", params["Cp"], "J/mg·K")
+field(frame_phys, 3, "h (convection)", params["h"], "W/mm²·K")
 
-field(frame_adv, 0, "α (diffusivité)", params["alpha"], "mm²/s")
-field(frame_adv, 1, "ρ (densité)", params["rho"], "kg/mm³")
-field(frame_adv, 2, "Cp", params["Cp"], "J/mg·K")
-field(frame_adv, 3, "h (convection)", params["h"], "W/mm²·K")
+#Colonne droite
+#==========================
+right_frame = ttk.Frame(main_frame)
+right_frame.grid(row=0, column=1, sticky="nw", padx=(40,0))
+
+#Section coordonnées d'intérêt
+section_title(right_frame, "Coordonnées d'intérêt")
+frame_coords = ttk.Frame(right_frame)
+frame_coords.pack(anchor="w")
+coord_field(frame_coords, 0, "TEC", params["TEC_x_mm"], params["TEC_y_mm"], "(x,y) mm")
+coord_field(frame_coords, 1, "T1", params["T1_x_mm"], params["T1_y_mm"], "(x,y) mm")
+coord_field(frame_coords, 2, "T2", params["T2_x_mm"], params["T2_y_mm"], "(x,y) mm")
+coord_field(frame_coords, 3, "T3", params["T3_x_mm"], params["T3_y_mm"], "(x,y) mm")
+
+#Section perturbation
+section_title(right_frame, "Perturbation")
+frame_pert = ttk.Frame(right_frame)
+frame_pert.pack(anchor="w")
+ttk.Label(frame_pert, text="Position").grid(row=0, column=0, sticky="w", padx=(5,10))
+ttk.Entry(frame_pert, textvariable=params["pert_x_mm"], width=5).grid(row=0, column=1, padx=0)
+ttk.Entry(frame_pert, textvariable=params["pert_y_mm"], width=5).grid(row=0, column=2, padx=0)
+ttk.Label(frame_pert, text="(x,y) mm").grid(row=0, column=3, padx=5)
+ttk.Label(frame_pert, text="Valeur").grid(row=1, column=0, sticky="w", padx=(5,10))
+ttk.Entry(frame_pert, textvariable=params["val_Resistance"], width=10).grid(row=1, column=1, columnspan=2)
+ttk.Label(frame_pert, text="ohm").grid(row=1, column=3, padx=5)
 
 #Simulation thermique
 #==========================
