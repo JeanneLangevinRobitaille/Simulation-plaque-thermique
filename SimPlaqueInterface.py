@@ -232,7 +232,7 @@ def simulation(data):
             plt.close(fig)
             return
 
-        def diapo():
+        def diapo(T, Tn):
             #Équation de diffusion thermique
             Tn[1:-1,1:-1] = T[1:-1,1:-1] + alpha*dt*(
                     (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
@@ -291,13 +291,15 @@ def start():
     global running
     if not running:
         running = True
+        print("Simulation started")
         data = {k: v.get() for k, v in params.items()}
         simulation(data)
 
 def cancel():
     global running
+    print("Simulation canceled")
     running = False
-
+    
 #Boutons
 #==========================
 frame_btn = ttk.Frame(root)
