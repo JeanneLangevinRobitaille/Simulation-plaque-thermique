@@ -188,7 +188,7 @@ def simulation(data):
         pass
 
     dt = 0.2 * min(dx, dy)**2 / alpha
-    steps_per_frame = 250
+    steps_per_frame = 150
 
     display_every = 10
     frame_count = 0
