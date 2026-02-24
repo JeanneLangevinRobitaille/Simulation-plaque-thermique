@@ -9,7 +9,6 @@ from tkinter import ttk
 root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
 root.geometry('1200x1050')
-
 running = False
 
 # Variables de sortie
@@ -43,7 +42,8 @@ params = {
     "T3_y_mm": tk.DoubleVar(value=0),
     "pert_x_mm": tk.DoubleVar(value=0),
     "pert_y_mm": tk.DoubleVar(value=0),
-    "val_Resistance": tk.DoubleVar(value=0.0)
+    "val_Resistance": tk.DoubleVar(value=0.0),
+    "tension_resistance": tk.DoubleVar(value=0.0)
     }
 
 #Fonctions affichage
@@ -90,6 +90,7 @@ main_frame.columnconfigure(1, weight=1)
 left_frame = ttk.Frame(main_frame)
 left_frame.grid(row=0, column=0, sticky="nw")
 
+#Section pour les fichiers JSON
 section_title(left_frame, "Chemin d'accès des fichiers")
 frame_geo = ttk.Frame(left_frame)
 frame_geo.pack(anchor="w")
@@ -145,9 +146,12 @@ ttk.Label(frame_pert, text="Position").grid(row=0, column=0, sticky="w", padx=(5
 ttk.Entry(frame_pert, textvariable=params["pert_x_mm"], width=5).grid(row=0, column=1, padx=0)
 ttk.Entry(frame_pert, textvariable=params["pert_y_mm"], width=5).grid(row=0, column=2, padx=0)
 ttk.Label(frame_pert, text="(x,y) mm").grid(row=0, column=3, padx=5)
-ttk.Label(frame_pert, text="Valeur").grid(row=1, column=0, sticky="w", padx=(5,10))
+ttk.Label(frame_pert, text="Résistance").grid(row=1, column=0, sticky="w", padx=(5,10))
 ttk.Entry(frame_pert, textvariable=params["val_Resistance"], width=10).grid(row=1, column=1, columnspan=2)
 ttk.Label(frame_pert, text="ohm").grid(row=1, column=3, padx=5)
+ttk.Label(frame_pert, text="Tension").grid(row=2, column=0, sticky="w", padx=(5,10))
+ttk.Entry(frame_pert, textvariable=params["tension_resistance"], width=10).grid(row=2, column=1, columnspan=2)
+ttk.Label(frame_pert, text="V").grid(row=2, column=3, padx=5)
 
 #Simulation thermique
 #==========================
@@ -155,7 +159,7 @@ def simulation(data):
     global running, data_out, results_out
 
     input_power = data["P_W"]
-    start_temp = data["T0_C"]
+    start_temp = data["Tamb_C"]
     sim_time = data["t_s"]
     resolution = int(data["res"])
 
@@ -167,6 +171,7 @@ def simulation(data):
     cp = data["Cp"]
     h = data["h"]
     T_amb = data["Tamb_C"]
+    V = data["tension_resistance"]
 
     x = np.linspace(-width/2, width/2, resolution+1)
     y = np.linspace(0, length, resolution+1)
@@ -178,6 +183,9 @@ def simulation(data):
     dx = width / resolution
     dy = length / resolution
     centre = resolution // 2
+
+    def coordToKnot(x,y):
+        pass
 
     dt = 0.2 * min(dx, dy)**2 / alpha
     steps_per_frame = 250
@@ -209,7 +217,7 @@ def simulation(data):
     l_entree, = ligne_temperature.plot([], [], label="Actionneur")
     l_centre, = ligne_temperature.plot([], [], label="Thermistance")
     l_sortie, = ligne_temperature.plot([], [], label="Point laser")
-
+    ligne_temperature.set_title(f"t = {time_sim}s")
     ligne_temperature.set_xlim(0, sim_time)
     ligne_temperature.set_ylim(start_temp, 
                                start_temp + 5)
@@ -217,27 +225,37 @@ def simulation(data):
     ligne_temperature.set_ylabel("T [°C]")
     ligne_temperature.legend()
 
-    def diapo(T, Tn):
-        Tn[1:-1,1:-1] = T[1:-1,1:-1] + alpha*dt*(
-            (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
-            (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
-
-        Tn[0:2, centre-1:centre+1] += Q_entree * dt / (rho * cp)
-        Tn[1:-1, 1:-1] -= (h*dt/(rho*cp*thickness))*(T[1:-1,1:-1]-T_amb)
-
-        Tn[0,:]  = Tn[1,:]
-        Tn[-1,:] = Tn[-2,:]
-        Tn[:,0]  = Tn[:,1]
-        Tn[:,-1] = Tn[:,-2]
-
-        return Tn
-
     def update(frame):
         nonlocal T, Tn, time_sim, surf, frame_count
 
         if not running:
             plt.close(fig)
             return
+
+        def diapo():
+            #Équation de diffusion thermique
+            Tn[1:-1,1:-1] = T[1:-1,1:-1] + alpha*dt*(
+                    (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
+                    (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
+
+            #Chaleur ajoutée par le TEC
+            Tn[0:2, centre-1:centre+1] += (Q_entree*dt
+                    /(rho * cp))
+
+            #Effet Joule de la résistance
+            
+
+            #Effet de la convection
+            Tn[1:-1, 1:-1] -= (h*dt/(rho*
+                    cp*thickness))*(T[1:-1,1:-1]-T_amb)
+
+            #Conditions aux limites
+            Tn[0,:]  = Tn[1,:]
+            Tn[-1,:] = Tn[-2,:]
+            Tn[:,0]  = Tn[:,1]
+            Tn[:,-1] = Tn[:,-2]
+
+            return Tn
 
         for _ in range(steps_per_frame):
             if time_sim >= sim_time:
