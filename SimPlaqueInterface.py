@@ -184,7 +184,10 @@ def simulation(data):
     dy = length / resolution
     centre = resolution // 2
 
-    def coordToKnot(x,y):
+    def coordToKnotX(x):
+        pass
+
+    def coordToKnotY(y):
         pass
 
     dt = 0.2 * min(dx, dy)**2 / alpha
