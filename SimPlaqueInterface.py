@@ -8,7 +8,7 @@ from tkinter import ttk
 #==========================
 root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
-root.geometry('1200x1050')
+root.geometry('1200x1100')
 running = False
 
 # Variables de sortie
@@ -43,7 +43,8 @@ params = {
     "pert_x_mm": tk.DoubleVar(value=0),
     "pert_y_mm": tk.DoubleVar(value=0),
     "val_Resistance": tk.DoubleVar(value=0.0),
-    "tension_resistance": tk.DoubleVar(value=0.0)
+    "tension_resistance": tk.DoubleVar(value=0.0),
+    "sim_speed": tk.DoubleVar(value=1)
     }
 
 #Fonctions affichage
@@ -114,6 +115,7 @@ field(frame_sim, 0, "Puissance entrée", params["P_W"], "W")
 field(frame_sim, 1, "Temps simulation", params["t_s"], "s")
 field(frame_sim, 2, "Résolution", params["res"], "N x N")
 field(frame_sim, 3, "Température ambiante", params["Tamb_C"], "°C")
+field(frame_sim, 4, "Rapidité de la simulation", params["sim_speed"], "multiplicateur")
 
 #Section paramètres physiques
 section_title(left_frame, "Paramètres physiques")
@@ -273,14 +275,14 @@ def simulation(data):
         Tout.append(T[-1, centre])
 
         frame_count += 1
-        if frame_count % display_every == 0:
+        if frame_count % data["sim_speed"] == 0:
             surf.remove()
             surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
 
-        l_entree.set_data(temps, Tin)
-        l_centre.set_data(temps, Tmid)
-        l_sortie.set_data(temps, Tout)
-        ligne_temperature.set_title(f"t = {time_sim:.2f} s")
+            l_entree.set_data(temps, Tin)
+            l_centre.set_data(temps, Tmid)
+            l_sortie.set_data(temps, Tout)
+            ligne_temperature.set_title(f"t = {time_sim:.2f} s")
 
     ani = FuncAnimation(fig, update, interval=40)
     plt.show()
