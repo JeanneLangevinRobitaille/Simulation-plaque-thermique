@@ -11,8 +11,8 @@ root.title("Simulateur de plaque asservie en température")
 root.geometry('1200x1100')
 running = False
 
-# Variables de sortie
-# ==========================
+#Variables de sortie
+#==========================
 data_out = None
 results_out = None
 
@@ -48,7 +48,7 @@ params = {
     }
 
 #Fonctions affichage
-    #==========================
+#==========================
 def section_title(parent, text):
     ttk.Label(parent, text=text,
             font=("Arial", 11, "bold")).pack(anchor="w", pady=(10, 4))
@@ -95,7 +95,6 @@ left_frame.grid(row=0, column=0, sticky="nw")
 section_title(left_frame, "Chemin d'accès des fichiers")
 frame_geo = ttk.Frame(left_frame)
 frame_geo.pack(anchor="w")
-
 field(frame_geo, 0, "Ficher d'entrée", entry_filepath, '')
 field(frame_geo, 1, "Ficher de sortie", exit_filepath, '')
 
