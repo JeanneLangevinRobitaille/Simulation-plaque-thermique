@@ -44,7 +44,7 @@ params = {
     "pert_y_mm": tk.DoubleVar(value=0),
     "val_Resistance": tk.DoubleVar(value=0.0),
     "tension_resistance": tk.DoubleVar(value=0.0),
-    "sim_speed": tk.DoubleVar(value=1)
+    "frames_showed": tk.DoubleVar(value=1)
     }
 
 #Fonctions affichage
@@ -115,7 +115,7 @@ field(frame_sim, 0, "Puissance entrée", params["P_W"], "W")
 field(frame_sim, 1, "Temps simulation", params["t_s"], "s")
 field(frame_sim, 2, "Résolution", params["res"], "N x N")
 field(frame_sim, 3, "Température ambiante", params["Tamb_C"], "°C")
-field(frame_sim, 4, "Rapidité de la simulation", params["sim_speed"], "multiplicateur")
+field(frame_sim, 4, "Saut d'image", params["frames_showed"], "image sautée")
 
 #Section paramètres physiques
 section_title(left_frame, "Paramètres physiques")
@@ -275,7 +275,7 @@ def simulation(data):
         Tout.append(T[-1, centre])
 
         frame_count += 1
-        if frame_count % data["sim_speed"] == 0:
+        if frame_count % data["frames_showed"] == 0:
             surf.remove()
             surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
 
