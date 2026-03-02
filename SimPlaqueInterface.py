@@ -21,9 +21,9 @@ results_out = None
 entry_filepath = ""
 exit_filepath = ""
 params = {
-    "L_mm": tk.DoubleVar(value=117.5),
-    "l_mm": tk.DoubleVar(value=61.5),
-    "e_mm": tk.DoubleVar(value=1.7),
+    "L_mm": tk.DoubleVar(value=117.5), #longueur
+    "l_mm": tk.DoubleVar(value=61.5), #largeur
+    "e_mm": tk.DoubleVar(value=1.7), #épaisseur
     "P_W": tk.DoubleVar(value=1.0),
     "t_s": tk.DoubleVar(value=150),
     "res": tk.DoubleVar(value=50),
@@ -42,10 +42,16 @@ params = {
     "T3_y_mm": tk.DoubleVar(value=0),
     "pert_x_mm": tk.DoubleVar(value=0),
     "pert_y_mm": tk.DoubleVar(value=0),
-    "val_Resistance": tk.DoubleVar(value=0.0),
+    "val_resistance": tk.DoubleVar(value=0.0),
     "tension_resistance": tk.DoubleVar(value=0.0),
     "frames_showed": tk.DoubleVar(value=1)
     }
+dx = params["l_mm"].get() / params["res"].get()
+dy = params["L_mm"].get() / params["res"].get()
+centre = int(params["res"].get() // 2)
+dt = 0.2 * min(dx, dy)**2 / params["alpha"].get()
+volume_entree = (2*dx)*(2*dy)*params["e_mm"].get()
+Q_entree = params["P_W"].get() / volume_entree
 
 #Fonctions affichage
 #==========================
@@ -144,67 +150,66 @@ section_title(right_frame, "Perturbation")
 frame_pert = ttk.Frame(right_frame)
 frame_pert.pack(anchor="w")
 ttk.Label(frame_pert, text="Position").grid(row=0, column=0, sticky="w", padx=(5,10))
-ttk.Entry(frame_pert, textvariable=params["pert_x_mm"], width=5).grid(row=0, column=1, padx=0)
-ttk.Entry(frame_pert, textvariable=params["pert_y_mm"], width=5).grid(row=0, column=2, padx=0)
+ttk.Entry(frame_pert, textvariable=params["pert_x_mm"], 
+          width=5).grid(row=0, column=1, padx=0)
+ttk.Entry(frame_pert, textvariable=params["pert_y_mm"], 
+          width=5).grid(row=0, column=2, padx=0)
 ttk.Label(frame_pert, text="(x,y) mm").grid(row=0, column=3, padx=5)
 ttk.Label(frame_pert, text="Résistance").grid(row=1, column=0, sticky="w", padx=(5,10))
-ttk.Entry(frame_pert, textvariable=params["val_Resistance"], width=10).grid(row=1, column=1, columnspan=2)
+ttk.Entry(frame_pert, textvariable=params["val_resistance"], 
+          width=10).grid(row=1, column=1, columnspan=2)
 ttk.Label(frame_pert, text="ohm").grid(row=1, column=3, padx=5)
 ttk.Label(frame_pert, text="Tension").grid(row=2, column=0, sticky="w", padx=(5,10))
-ttk.Entry(frame_pert, textvariable=params["tension_resistance"], width=10).grid(row=2, column=1, columnspan=2)
+ttk.Entry(frame_pert, textvariable=params["tension_resistance"], 
+          width=10).grid(row=2, column=1, columnspan=2)
 ttk.Label(frame_pert, text="V").grid(row=2, column=3, padx=5)
+
+def heatCalc(T, Tn):
+    #Équation de diffusion thermique
+    Tn[1:-1,1:-1] = T[1:-1,1:-1] + params["alpha"].get() *dt*(
+            (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
+            (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
+    #Chaleur ajoutée par le TEC
+    Tn[0:2, centre-1:centre+1] += (Q_entree*dt
+            /(params["rho"].get() * params["Cp"].get() ))
+    #Effet Joule de la résistance
+    
+    #Effet de la convection
+    Tn[1:-1, 1:-1] -= (params["h"].get() *dt/(params["rho"].get() *
+            params["Cp"].get() * 
+            params["e_mm"].get()))*(T[1:-1,1:-1]-params["Tamb_C"].get())
+    #Conditions aux limites
+    Tn[0,:]  = Tn[1,:]
+    Tn[-1,:] = Tn[-2,:]
+    Tn[:,0]  = Tn[:,1]
+    Tn[:,-1] = Tn[:,-2]
+    return Tn
+
+def coordToKnotX(x):
+    pass
+
+def coordToKnotY(y):
+    pass
 
 #Simulation thermique
 #==========================
 def simulation(data):
     global running, data_out, results_out
 
-    input_power = data["P_W"]
-    start_temp = data["Tamb_C"]
-    sim_time = data["t_s"]
-    resolution = int(data["res"])
-
-    width = data["l_mm"]
-    length = data["L_mm"]
-    thickness = data["e_mm"]
-    alpha = data["alpha"]
-    rho = data["rho"]
-    cp = data["Cp"]
-    h = data["h"]
-    T_amb = data["Tamb_C"]
-    V = data["tension_resistance"]
-
-    x = np.linspace(-width/2, width/2, resolution+1)
-    y = np.linspace(0, length, resolution+1)
+    x = np.linspace(-params["l_mm"].get()/2, 
+                    params["l_mm"].get()/2, int(params["res"].get())+1)
+    y = np.linspace(0, params["L_mm"].get(), int(params["res"].get())+1)
     X, Y = np.meshgrid(x, y)
 
-    T = np.full_like(X, start_temp, dtype=float)
+    T = np.full_like(X, params["Tamb_C"].get(), dtype=float)
     Tn = T.copy()
 
-    dx = width / resolution
-    dy = length / resolution
-    centre = resolution // 2
-
-    def coordToKnotX(x):
-        pass
-
-    def coordToKnotY(y):
-        pass
-
-    dt = 0.2 * min(dx, dy)**2 / alpha
     steps_per_frame = 150
-
-    display_every = 10
     frame_count = 0
-
-    volume_entree = (2*dx)*(2*dy)*thickness
-    Q_entree = input_power / volume_entree
-
     temps, Tin, Tmid, Tout = [], [], [], []
-
-    fig = plt.figure(figsize=(11,5))
-
+    
     #Positionnement des fenetres
+    fig = plt.figure(figsize=(11,5))
     manager = plt.get_current_fig_manager()
     screen_width = manager.window.winfo_screenwidth()
     fig_width = 1100
@@ -214,70 +219,39 @@ def simulation(data):
 
     surface_temperature = fig.add_subplot(121, projection='3d')
     surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
-    surface_temperature.set_zlim(start_temp,
-                                 start_temp + (1 if input_power < 1 else 2))
-    
+    surface_temperature.set_zlim(params["Tamb_C"].get(),
+                                 params["Tamb_C"].get() + (1 if params["P_W"].get() < 1 else 2))
     ligne_temperature = fig.add_subplot(122)
     l_entree, = ligne_temperature.plot([], [], label="Actionneur")
     l_centre, = ligne_temperature.plot([], [], label="Thermistance")
     l_sortie, = ligne_temperature.plot([], [], label="Point laser")
     ligne_temperature.set_title(f"t = {time_sim}s")
-    ligne_temperature.set_xlim(0, sim_time)
-    ligne_temperature.set_ylim(start_temp, 
-                               start_temp + 5)
+    ligne_temperature.set_xlim(0, params["t_s"].get())
+    ligne_temperature.set_ylim(params["Tamb_C"].get(), 
+                               params["Tamb_C"].get() + 5)
     ligne_temperature.set_xlabel("t [s]")
     ligne_temperature.set_ylabel("T [°C]")
     ligne_temperature.legend()
 
     def update(frame):
         nonlocal T, Tn, time_sim, surf, frame_count
-
         if not running:
             plt.close(fig)
             return
-
-        def diapo(T, Tn):
-            #Équation de diffusion thermique
-            Tn[1:-1,1:-1] = T[1:-1,1:-1] + alpha*dt*(
-                    (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
-                    (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
-
-            #Chaleur ajoutée par le TEC
-            Tn[0:2, centre-1:centre+1] += (Q_entree*dt
-                    /(rho * cp))
-
-            #Effet Joule de la résistance
-            
-
-            #Effet de la convection
-            Tn[1:-1, 1:-1] -= (h*dt/(rho*
-                    cp*thickness))*(T[1:-1,1:-1]-T_amb)
-
-            #Conditions aux limites
-            Tn[0,:]  = Tn[1,:]
-            Tn[-1,:] = Tn[-2,:]
-            Tn[:,0]  = Tn[:,1]
-            Tn[:,-1] = Tn[:,-2]
-
-            return Tn
-
         for _ in range(steps_per_frame):
-            if time_sim >= sim_time:
+            if time_sim >= params["t_s"].get():
                 break
-            Tn = diapo(T, Tn)
+            Tn = heatCalc(T, Tn)
             T, Tn = Tn, T
             time_sim += dt
-
         temps.append(time_sim)
         Tin.append(T[0, centre])
         Tmid.append(T[centre, centre])
         Tout.append(T[-1, centre])
-
         frame_count += 1
-        if frame_count % data["frames_showed"] == 0:
+        if frame_count % params["frames_showed"].get() == 0:
             surf.remove()
             surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
-
             l_entree.set_data(temps, Tin)
             l_centre.set_data(temps, Tmid)
             l_sortie.set_data(temps, Tout)
