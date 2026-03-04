@@ -35,13 +35,13 @@ params = {
     "TEC_x_mm": tk.DoubleVar(value=0),
     "TEC_y_mm": tk.DoubleVar(value=0),
     "T1_x_mm": tk.DoubleVar(value=0),
-    "T1_y_mm": tk.DoubleVar(value=0),
+    "T1_y_mm": tk.DoubleVar(value=20),
     "T2_x_mm": tk.DoubleVar(value=0),
-    "T2_y_mm": tk.DoubleVar(value=0),
+    "T2_y_mm": tk.DoubleVar(value=40),
     "T3_x_mm": tk.DoubleVar(value=0),
-    "T3_y_mm": tk.DoubleVar(value=0),
-    "pert_x_mm": tk.DoubleVar(value=0),
-    "pert_y_mm": tk.DoubleVar(value=0),
+    "T3_y_mm": tk.DoubleVar(value=60),
+    "pert_x_mm": tk.DoubleVar(value=-25),
+    "pert_y_mm": tk.DoubleVar(value=50),
     "val_resistance": tk.DoubleVar(value=10.0),
     "tension_resistance": tk.DoubleVar(value=1.0),
     "frames_showed": tk.DoubleVar(value=1)
@@ -136,8 +136,8 @@ frame_coords = ttk.Frame(right_frame)
 frame_coords.pack(anchor="w")
 coord_field(frame_coords, 0, "TEC", params["TEC_x_mm"], params["TEC_y_mm"], "(x,y) mm")
 coord_field(frame_coords, 1, "T1", params["T1_x_mm"], params["T1_y_mm"], "(x,y) mm")
-coord_field(frame_coords, 2, "T2_vals", params["T2_x_mm"], params["T2_y_mm"], "(x,y) mm")
-coord_field(frame_coords, 3, "T3_vals", params["T3_x_mm"], params["T3_y_mm"], "(x,y) mm")
+coord_field(frame_coords, 2, "T2", params["T2_x_mm"], params["T2_y_mm"], "(x,y) mm")
+coord_field(frame_coords, 3, "T3", params["T3_x_mm"], params["T3_y_mm"], "(x,y) mm")
 
 #Section perturbation
 section_title(right_frame, "Perturbation")
@@ -183,9 +183,9 @@ def simulation(data):
 
     def xToKnot(x_coord):
         return int(round((x_coord + params["l_mm"].get()/2) / dx))
-
+        
     def yToKnot(y_coord):
-        return int(round(y_coord/dy))
+        return int(round(y_coord / dy))
 
     def heatCalc(T, Tn):
         #Équation de diffusion thermique
@@ -194,13 +194,13 @@ def simulation(data):
                 (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
         
         #Chaleur ajoutée par le TEC
-        i_tec, j_tec = xToKnot(params["TEC_x_mm"].get()), yToKnot(params["TEC_y_mm"].get())
-        Tn[i_tec-1:i_tec+1, j_tec-1:j_tec+1] += ((Q_entree*dt)
+        j_tec, i_tec = xToKnot(params["TEC_x_mm"].get()), yToKnot(params["TEC_y_mm"].get())
+        Tn[i_tec:i_tec+2, j_tec-1:j_tec+1] += ((Q_entree*dt)
                 /(params["rho"].get() * params["Cp"].get() ))
         
         #Effet Joule de la résistance
-        i_R, j_R = xToKnot(params["pert_x_mm"].get()), yToKnot(params["pert_y_mm"].get())
-        Tn[i_R, j_R] += ((params["tension_resistance"].get())**2 * dt)/(
+        j_R, i_R = xToKnot(params["pert_x_mm"].get()), yToKnot(params["pert_y_mm"].get())
+        Tn[i_R:i_R+2, j_R-1:j_R+1] += ((params["tension_resistance"].get())**2 * dt)/(
             params["val_resistance"].get()*params["rho"].get() * params["Cp"].get()
             * params["e_mm"].get() * dx * dy)
         
@@ -232,16 +232,16 @@ def simulation(data):
 
     surface_temperature = fig.add_subplot(121, projection='3d')
     surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
-    #surface_temperature.set_zlim(params["Tamb_C"].get(), params["Tamb_C"].get() + (1 if params["P_W"].get() < 1 else 2))
-    
+    surface_temperature.set_xlabel("x [mm]")
+    surface_temperature.set_ylabel("y [mm]")
+
     ligne_temperature = fig.add_subplot(122)
-    l_entree, = ligne_temperature.plot([], [], label="Actionneur")
-    l_centre, = ligne_temperature.plot([], [], label="Thermistance")
-    l_sortie, = ligne_temperature.plot([], [], label="Point laser")
+    l_entree, = ligne_temperature.plot([], [], label="T1")
+    l_centre, = ligne_temperature.plot([], [], label="T2")
+    l_sortie, = ligne_temperature.plot([], [], label="T3")
     ligne_temperature.set_title(f"t = {time_sim}s")
     ligne_temperature.set_xlim(0, params["t_s"].get())
-    ligne_temperature.set_ylim(params["Tamb_C"].get(), 
-                               params["Tamb_C"].get() + 5)
+    ligne_temperature.set_ylim(params["Tamb_C"].get(), params["Tamb_C"].get() + 5)
     ligne_temperature.set_xlabel("t [s]")
     ligne_temperature.set_ylabel("T [°C]")
     ligne_temperature.legend()
@@ -260,14 +260,17 @@ def simulation(data):
         
         temps.append(time_sim)
 
-        i1,j1 = xToKnot(params["T1_x_mm"].get()), yToKnot(params["T1_y_mm"].get())
+        j1,i1 = xToKnot(params["T1_x_mm"].get()), yToKnot(params["T1_y_mm"].get())
         T1_vals.append(T[i1,j1])
+        surface_temperature.scatter3D(X[i1, j1], Y[i1, j1], T[i1,j1], color='red')
 
-        i2,j2 = xToKnot(params["T2_x_mm"].get()), yToKnot(params["T2_y_mm"].get())
+        j2,i2 = xToKnot(params["T2_x_mm"].get()), yToKnot(params["T2_y_mm"].get())
         T2_vals.append(T[i2,j2])
+        surface_temperature.scatter3D(X[i2, j2], Y[i2, j2], T[i2,j2], color='blue')
 
-        i3,j3 = xToKnot(params["T3_x_mm"].get()), yToKnot(params["T3_y_mm"].get())
+        j3,i3 = xToKnot(params["T3_x_mm"].get()), yToKnot(params["T3_y_mm"].get())
         T3_vals.append(T[i3,j3])
+        surface_temperature.scatter3D(X[i3, j3], Y[i3, j3], T[i3,j3], color='green')
 
         frame_count += 1
         if frame_count % params["frames_showed"].get() == 0:
