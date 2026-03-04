@@ -136,8 +136,8 @@ frame_coords = ttk.Frame(right_frame)
 frame_coords.pack(anchor="w")
 coord_field(frame_coords, 0, "TEC", params["TEC_x_mm"], params["TEC_y_mm"], "(x,y) mm")
 coord_field(frame_coords, 1, "T1", params["T1_x_mm"], params["T1_y_mm"], "(x,y) mm")
-coord_field(frame_coords, 2, "T2", params["T2_x_mm"], params["T2_y_mm"], "(x,y) mm")
-coord_field(frame_coords, 3, "T3", params["T3_x_mm"], params["T3_y_mm"], "(x,y) mm")
+coord_field(frame_coords, 2, "T2_vals", params["T2_x_mm"], params["T2_y_mm"], "(x,y) mm")
+coord_field(frame_coords, 3, "T3_vals", params["T3_x_mm"], params["T3_y_mm"], "(x,y) mm")
 
 #Section perturbation
 section_title(right_frame, "Perturbation")
@@ -170,10 +170,11 @@ def simulation(data):
     X, Y = np.meshgrid(x, y)
 
     #Valeurs calculés simples
-    dx = params["l_mm"].get() / params["res"].get()
-    dy = params["L_mm"].get() / params["res"].get()
+    dx = params["l_mm"].get() / (params["res"].get()-1)
+    dy = params["L_mm"].get() / (params["res"].get()-1)
     centre = int(params["res"].get() // 2)
     dt = 0.2 * min(dx, dy)**2 / params["alpha"].get()
+    dt = min(dt, 0.5/(params["alpha"].get()*((1/dx**2)+(1/dy**2))))
     volume_entree = (2*dx)*(2*dy)*params["e_mm"].get()
     Q_entree = (params["P_W"].get()) / volume_entree
 
@@ -181,10 +182,10 @@ def simulation(data):
     Tn = T.copy()
 
     def xToKnot(x_coord):
-        return np.argmin(np.abs(x-x_coord))
+        return int(round((x_coord + params["l_mm"].get()/2) / dx))
 
     def yToKnot(y_coord):
-        return np.argmin(np.abs(y-y_coord))
+        return int(round(y_coord/dy))
 
     def heatCalc(T, Tn):
         #Équation de diffusion thermique
@@ -193,11 +194,13 @@ def simulation(data):
                 (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
         
         #Chaleur ajoutée par le TEC
-        Tn[0:2, centre-1:centre+1] += ((Q_entree*dt)
+        i_tec, j_tec = xToKnot(params["TEC_x_mm"].get()), yToKnot(params["TEC_y_mm"].get())
+        Tn[i_tec-1:i_tec+1, j_tec-1:j_tec+1] += ((Q_entree*dt)
                 /(params["rho"].get() * params["Cp"].get() ))
         
         #Effet Joule de la résistance
-        Tn[0, 50] += ((params["tension_resistance"].get())**2 * dt)/(
+        i_R, j_R = xToKnot(params["pert_x_mm"].get()), yToKnot(params["pert_y_mm"].get())
+        Tn[i_R, j_R] += ((params["tension_resistance"].get())**2 * dt)/(
             params["val_resistance"].get()*params["rho"].get() * params["Cp"].get()
             * params["e_mm"].get() * dx * dy)
         
@@ -207,16 +210,16 @@ def simulation(data):
                 params["e_mm"].get()))*(T[1:-1,1:-1]-params["Tamb_C"].get())
         
         #Conditions aux limites
-        Tn[0,:]  = Tn[1,:]
+        Tn[0,:] = Tn[1,:]
         Tn[-1,:] = Tn[-2,:]
-        Tn[:,0]  = Tn[:,1]
+        Tn[:,0] = Tn[:,1]
         Tn[:,-1] = Tn[:,-2]
 
         return Tn
 
     steps_per_frame = 150
     frame_count = 0
-    temps, Tin, Tmid, Tout = [], [], [], []
+    temps, T1_vals, T2_vals, T3_vals = [], [], [], []
     
     #Positionnement des fenetres
     fig = plt.figure(figsize=(11,5))
@@ -229,8 +232,8 @@ def simulation(data):
 
     surface_temperature = fig.add_subplot(121, projection='3d')
     surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
-    surface_temperature.set_zlim(params["Tamb_C"].get(),
-                                 params["Tamb_C"].get() + (1 if params["P_W"].get() < 1 else 2))
+    #surface_temperature.set_zlim(params["Tamb_C"].get(), params["Tamb_C"].get() + (1 if params["P_W"].get() < 1 else 2))
+    
     ligne_temperature = fig.add_subplot(122)
     l_entree, = ligne_temperature.plot([], [], label="Actionneur")
     l_centre, = ligne_temperature.plot([], [], label="Thermistance")
@@ -254,24 +257,32 @@ def simulation(data):
             Tn = heatCalc(T, Tn)
             T, Tn = Tn, T
             time_sim += dt
+        
         temps.append(time_sim)
-        Tin.append(T[0, centre])
-        Tmid.append(T[centre, centre])
-        Tout.append(T[-1, centre])
+
+        i1,j1 = xToKnot(params["T1_x_mm"].get()), yToKnot(params["T1_y_mm"].get())
+        T1_vals.append(T[i1,j1])
+
+        i2,j2 = xToKnot(params["T2_x_mm"].get()), yToKnot(params["T2_y_mm"].get())
+        T2_vals.append(T[i2,j2])
+
+        i3,j3 = xToKnot(params["T3_x_mm"].get()), yToKnot(params["T3_y_mm"].get())
+        T3_vals.append(T[i3,j3])
+
         frame_count += 1
         if frame_count % params["frames_showed"].get() == 0:
             surf.remove()
             surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
-            l_entree.set_data(temps, Tin)
-            l_centre.set_data(temps, Tmid)
-            l_sortie.set_data(temps, Tout)
+            l_entree.set_data(temps, T1_vals)
+            l_centre.set_data(temps, T2_vals)
+            l_sortie.set_data(temps, T3_vals)
             ligne_temperature.set_title(f"t = {time_sim:.2f} s")
 
     ani = FuncAnimation(fig, update, interval=40)
     plt.show()
 
     data_out = data.copy()
-    results_out = {"temps": temps, "Tin": Tin, "Tmid": Tmid, "Tout": Tout}
+    results_out = {"temps": temps, "T1": T1_vals, "T2": T2_vals, "T3": T3_vals}
 
 #Controle
 #==========================
