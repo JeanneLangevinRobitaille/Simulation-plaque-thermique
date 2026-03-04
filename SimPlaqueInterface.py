@@ -42,16 +42,24 @@ params = {
     "T3_y_mm": tk.DoubleVar(value=0),
     "pert_x_mm": tk.DoubleVar(value=0),
     "pert_y_mm": tk.DoubleVar(value=0),
-    "val_resistance": tk.DoubleVar(value=0.0),
-    "tension_resistance": tk.DoubleVar(value=0.0),
+    "val_resistance": tk.DoubleVar(value=10.0),
+    "tension_resistance": tk.DoubleVar(value=1.0),
     "frames_showed": tk.DoubleVar(value=1)
     }
+
+#Espace de la plaque
+x = np.linspace(-params["l_mm"].get()/2, 
+                params["l_mm"].get()/2, int(params["res"].get())+1)
+y = np.linspace(0, params["L_mm"].get(), int(params["res"].get())+1)
+X, Y = np.meshgrid(x, y)
+
+#Valeurs calculés simples
 dx = params["l_mm"].get() / params["res"].get()
 dy = params["L_mm"].get() / params["res"].get()
 centre = int(params["res"].get() // 2)
 dt = 0.2 * min(dx, dy)**2 / params["alpha"].get()
 volume_entree = (2*dx)*(2*dy)*params["e_mm"].get()
-Q_entree = params["P_W"].get() / volume_entree
+Q_entree = (params["P_W"].get()) / volume_entree
 
 #Fonctions affichage
 #==========================
@@ -170,10 +178,12 @@ def heatCalc(T, Tn):
             (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
             (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
     #Chaleur ajoutée par le TEC
-    Tn[0:2, centre-1:centre+1] += (Q_entree*dt
+    Tn[0:2, centre-1:centre+1] += ((Q_entree*dt)
             /(params["rho"].get() * params["Cp"].get() ))
     #Effet Joule de la résistance
-    
+    Tn[0, 50] += ((params["tension_resistance"].get())**2 * dt)/(
+        params["val_resistance"].get()*params["rho"].get() * params["Cp"].get()
+        * params["e_mm"].get() * dx * dy)
     #Effet de la convection
     Tn[1:-1, 1:-1] -= (params["h"].get() *dt/(params["rho"].get() *
             params["Cp"].get() * 
@@ -185,21 +195,16 @@ def heatCalc(T, Tn):
     Tn[:,-1] = Tn[:,-2]
     return Tn
 
-def coordToKnotX(x):
-    pass
+def xToKnot(x_coord):
+    return np.argmin(np.abs(x-x_coord))
 
-def coordToKnotY(y):
-    pass
+def yToKnot(y_coord):
+    return np.argmin(np.abs(y-y_coord))
 
 #Simulation thermique
 #==========================
 def simulation(data):
     global running, data_out, results_out
-
-    x = np.linspace(-params["l_mm"].get()/2, 
-                    params["l_mm"].get()/2, int(params["res"].get())+1)
-    y = np.linspace(0, params["L_mm"].get(), int(params["res"].get())+1)
-    X, Y = np.meshgrid(x, y)
 
     T = np.full_like(X, params["Tamb_C"].get(), dtype=float)
     Tn = T.copy()
