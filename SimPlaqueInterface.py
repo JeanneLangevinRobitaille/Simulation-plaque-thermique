@@ -47,20 +47,6 @@ params = {
     "frames_showed": tk.DoubleVar(value=1)
     }
 
-#Espace de la plaque
-x = np.linspace(-params["l_mm"].get()/2, 
-                params["l_mm"].get()/2, int(params["res"].get())+1)
-y = np.linspace(0, params["L_mm"].get(), int(params["res"].get())+1)
-X, Y = np.meshgrid(x, y)
-
-#Valeurs calculés simples
-dx = params["l_mm"].get() / params["res"].get()
-dy = params["L_mm"].get() / params["res"].get()
-centre = int(params["res"].get() // 2)
-dt = 0.2 * min(dx, dy)**2 / params["alpha"].get()
-volume_entree = (2*dx)*(2*dy)*params["e_mm"].get()
-Q_entree = (params["P_W"].get()) / volume_entree
-
 #Fonctions affichage
 #==========================
 def section_title(parent, text):
@@ -172,42 +158,61 @@ ttk.Entry(frame_pert, textvariable=params["tension_resistance"],
           width=10).grid(row=2, column=1, columnspan=2)
 ttk.Label(frame_pert, text="V").grid(row=2, column=3, padx=5)
 
-def heatCalc(T, Tn):
-    #Équation de diffusion thermique
-    Tn[1:-1,1:-1] = T[1:-1,1:-1] + params["alpha"].get() *dt*(
-            (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
-            (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
-    #Chaleur ajoutée par le TEC
-    Tn[0:2, centre-1:centre+1] += ((Q_entree*dt)
-            /(params["rho"].get() * params["Cp"].get() ))
-    #Effet Joule de la résistance
-    Tn[0, 50] += ((params["tension_resistance"].get())**2 * dt)/(
-        params["val_resistance"].get()*params["rho"].get() * params["Cp"].get()
-        * params["e_mm"].get() * dx * dy)
-    #Effet de la convection
-    Tn[1:-1, 1:-1] -= (params["h"].get() *dt/(params["rho"].get() *
-            params["Cp"].get() * 
-            params["e_mm"].get()))*(T[1:-1,1:-1]-params["Tamb_C"].get())
-    #Conditions aux limites
-    Tn[0,:]  = Tn[1,:]
-    Tn[-1,:] = Tn[-2,:]
-    Tn[:,0]  = Tn[:,1]
-    Tn[:,-1] = Tn[:,-2]
-    return Tn
-
-def xToKnot(x_coord):
-    return np.argmin(np.abs(x-x_coord))
-
-def yToKnot(y_coord):
-    return np.argmin(np.abs(y-y_coord))
-
 #Simulation thermique
 #==========================
 def simulation(data):
     global running, data_out, results_out
 
+    #Espace de la plaque
+    x = np.linspace(-params["l_mm"].get()/2, 
+                    params["l_mm"].get()/2, int(params["res"].get())+1)
+    y = np.linspace(0, params["L_mm"].get(), int(params["res"].get())+1)
+    X, Y = np.meshgrid(x, y)
+
+    #Valeurs calculés simples
+    dx = params["l_mm"].get() / params["res"].get()
+    dy = params["L_mm"].get() / params["res"].get()
+    centre = int(params["res"].get() // 2)
+    dt = 0.2 * min(dx, dy)**2 / params["alpha"].get()
+    volume_entree = (2*dx)*(2*dy)*params["e_mm"].get()
+    Q_entree = (params["P_W"].get()) / volume_entree
+
     T = np.full_like(X, params["Tamb_C"].get(), dtype=float)
     Tn = T.copy()
+
+    def xToKnot(x_coord):
+        return np.argmin(np.abs(x-x_coord))
+
+    def yToKnot(y_coord):
+        return np.argmin(np.abs(y-y_coord))
+
+    def heatCalc(T, Tn):
+        #Équation de diffusion thermique
+        Tn[1:-1,1:-1] = T[1:-1,1:-1] + params["alpha"].get() *dt*(
+                (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
+                (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
+        
+        #Chaleur ajoutée par le TEC
+        Tn[0:2, centre-1:centre+1] += ((Q_entree*dt)
+                /(params["rho"].get() * params["Cp"].get() ))
+        
+        #Effet Joule de la résistance
+        Tn[0, 50] += ((params["tension_resistance"].get())**2 * dt)/(
+            params["val_resistance"].get()*params["rho"].get() * params["Cp"].get()
+            * params["e_mm"].get() * dx * dy)
+        
+        #Effet de la convection
+        Tn[1:-1, 1:-1] -= (params["h"].get() *dt/(params["rho"].get() *
+                params["Cp"].get() * 
+                params["e_mm"].get()))*(T[1:-1,1:-1]-params["Tamb_C"].get())
+        
+        #Conditions aux limites
+        Tn[0,:]  = Tn[1,:]
+        Tn[-1,:] = Tn[-2,:]
+        Tn[:,0]  = Tn[:,1]
+        Tn[:,-1] = Tn[:,-2]
+
+        return Tn
 
     steps_per_frame = 150
     frame_count = 0
