@@ -18,8 +18,6 @@ results_out = None
 
 #Paramètres avec valeurs préfaites
 #==========================
-entry_filepath = ""
-exit_filepath = ""
 params = {
     "L_mm": tk.DoubleVar(value=117.5), #longueur
     "l_mm": tk.DoubleVar(value=61.5), #largeur
@@ -44,7 +42,9 @@ params = {
     "pert_y_mm": tk.DoubleVar(value=50),
     "val_resistance": tk.DoubleVar(value=10.0),
     "tension_resistance": tk.DoubleVar(value=1.0),
-    "frames_showed": tk.DoubleVar(value=1)
+    "frames_showed": tk.DoubleVar(value=1),
+    "entry_filepath": tk.StringVar(value = ""),
+    "output_filepath": tk.StringVar(value = "")
     }
 
 #Fonctions affichage
@@ -95,8 +95,8 @@ left_frame.grid(row=0, column=0, sticky="nw")
 section_title(left_frame, "Chemin d'accès des fichiers")
 frame_geo = ttk.Frame(left_frame)
 frame_geo.pack(anchor="w")
-field(frame_geo, 0, "Ficher d'entrée", entry_filepath, '')
-field(frame_geo, 1, "Ficher de sortie", exit_filepath, '')
+field(frame_geo, 0, "Ficher d'entrée", params["entry_filepath"], '')
+field(frame_geo, 1, "Ficher de sortie", params["output_filepath"], '')
 
 #Section paramètres de la plaque
 section_title(left_frame, "Paramètres de la plaque")
@@ -316,6 +316,12 @@ tk.Button(frame_btn, text="Cancel", width=15,
           command=cancel).pack(side="left", padx=10)
 
 root.mainloop()
+
+#The mythical walrus operator
+if (path := params["entry_filepath"].get()):
+    print(path)
+else:
+    print("No filepath")
 
 print(data_out)
 print(results_out)
