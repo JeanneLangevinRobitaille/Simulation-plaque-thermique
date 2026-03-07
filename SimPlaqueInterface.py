@@ -234,7 +234,19 @@ def simulation(data):
     surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
     surface_temperature.set_xlabel("x [mm]")
     surface_temperature.set_ylabel("y [mm]")
-
+    p1 = surface_temperature.scatter([], [], [], s=100, c="red",
+                                 edgecolors="black",
+                                 depthshade=False,
+                                 label='T1')
+    p2 = surface_temperature.scatter([], [], [], s=100, c="blue",
+                                    edgecolors="black",
+                                    depthshade=False,
+                                    label="T2")
+    p3 = surface_temperature.scatter([], [], [], s=100, c="lime",
+                                    edgecolors="black",
+                                    depthshade=False,
+                                    label="T3")
+    surface_temperature.legend()
     ligne_temperature = fig.add_subplot(122)
     l_entree, = ligne_temperature.plot([], [], label="T1")
     l_centre, = ligne_temperature.plot([], [], label="T2")
@@ -276,6 +288,9 @@ def simulation(data):
             l_entree.set_data(temps, T1_vals)
             l_centre.set_data(temps, T2_vals)
             l_sortie.set_data(temps, T3_vals)
+            p1._offsets3d = ([X[i1,j1]], [Y[i1,j1]], [T[i1,j1]])
+            p2._offsets3d = ([X[i2,j2]], [Y[i2,j2]], [T[i2,j2]])
+            p3._offsets3d = ([X[i3,j3]], [Y[i3,j3]], [T[i3,j3]])
             ligne_temperature.set_title(f"t = {time_sim:.2f} s")
 
     ani = FuncAnimation(fig, update, interval=40)
