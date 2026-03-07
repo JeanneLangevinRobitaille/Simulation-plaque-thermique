@@ -47,6 +47,9 @@ params = {
     "output_filepath": tk.StringVar(value = "")
     }
 
+#add the parameter file functionality here
+
+
 #Fonctions affichage
 #==========================
 def section_title(parent, text):
@@ -332,8 +335,7 @@ root.mainloop()
 #The mythical walrus operator, holy shit
 if (path := params["entry_filepath"].get()):
     print(path)
-else:
-    print("No filepath")
+    #add function for file JSON
 
 print(data_out)
 print(results_out)
