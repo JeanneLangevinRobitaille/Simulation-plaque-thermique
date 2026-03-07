@@ -262,15 +262,15 @@ def simulation(data):
 
         j1,i1 = xToKnot(params["T1_x_mm"].get()), yToKnot(params["T1_y_mm"].get())
         T1_vals.append(T[i1,j1])
-        surface_temperature.scatter3D(X[i1, j1], Y[i1, j1], T[i1,j1], color='red')
+        #surface_temperature.scatter3D(X[i1, j1], Y[i1, j1], T[i1,j1], color='red')
 
         j2,i2 = xToKnot(params["T2_x_mm"].get()), yToKnot(params["T2_y_mm"].get())
         T2_vals.append(T[i2,j2])
-        surface_temperature.scatter3D(X[i2, j2], Y[i2, j2], T[i2,j2], color='blue')
+        #surface_temperature.scatter3D(X[i2, j2], Y[i2, j2], T[i2,j2], color='blue')
 
         j3,i3 = xToKnot(params["T3_x_mm"].get()), yToKnot(params["T3_y_mm"].get())
         T3_vals.append(T[i3,j3])
-        surface_temperature.scatter3D(X[i3, j3], Y[i3, j3], T[i3,j3], color='green')
+        #surface_temperature.scatter3D(X[i3, j3], Y[i3, j3], T[i3,j3], color='green')
 
         frame_count += 1
         if frame_count % params["frames_showed"].get() == 0:
@@ -317,7 +317,7 @@ tk.Button(frame_btn, text="Cancel", width=15,
 
 root.mainloop()
 
-#The mythical walrus operator
+#The mythical walrus operator, holy shit
 if (path := params["entry_filepath"].get()):
     print(path)
 else:
