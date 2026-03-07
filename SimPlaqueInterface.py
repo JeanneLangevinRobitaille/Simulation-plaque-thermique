@@ -234,11 +234,11 @@ def simulation(data):
     surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
     surface_temperature.set_xlabel("x [mm]")
     surface_temperature.set_ylabel("y [mm]")
-    p1 = surface_temperature.scatter([], [], [], s=100, c="red",
+    p1 = surface_temperature.scatter([], [], [], s=100, c="blue",
                                  edgecolors="black",
                                  depthshade=False,
                                  label='T1')
-    p2 = surface_temperature.scatter([], [], [], s=100, c="blue",
+    p2 = surface_temperature.scatter([], [], [], s=100, c="orange",
                                     edgecolors="black",
                                     depthshade=False,
                                     label="T2")
