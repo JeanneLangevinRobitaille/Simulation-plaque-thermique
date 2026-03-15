@@ -332,7 +332,6 @@ tk.Button(frame_btn, text="Cancel", width=15,
 
 root.mainloop()
 
-#The mythical walrus operator, holy shit
 if (path := params["entry_filepath"].get()):
     print(path)
     #add function for file JSON
