@@ -4,7 +4,7 @@ from matplotlib.animation import FuncAnimation
 import tkinter as tk
 from tkinter import ttk
 
-#Fenetre de l'interface
+#Fenêtre de l'interface
 #==========================
 root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
@@ -48,7 +48,6 @@ params = {
     }
 
 #add the parameter file functionality here
-
 
 #Fonctions affichage
 #==========================
@@ -238,7 +237,13 @@ def simulation(data):
     time_sim = 0.0
 
     surface_temperature = fig.add_subplot(121, projection='3d')
-    surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
+    surf = surface_temperature.plot_surface(
+        X, Y, T,
+        cmap='viridis',
+        shade=False,
+        rstride=2,
+        cstride=2)
+    surface_temperature.set_zlim(data["Tamb_C"], data["Tamb_C"] + 10)
     surface_temperature.set_xlabel("x [mm]")
     surface_temperature.set_ylabel("y [mm]")
     p1 = surface_temperature.scatter([], [], [], s=100, c="blue",
@@ -286,7 +291,12 @@ def simulation(data):
         frame_count += 1
         if frame_count % data["frames_showed"] == 0:
             surf.remove()
-            surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis', alpha=0.9, shade=False)
+            surf = surface_temperature.plot_surface(
+                X, Y, T,
+                cmap='viridis',
+                shade=False,
+                rstride=2,
+                cstride=2)
             l_entree.set_data(temps, T1_vals)
             l_centre.set_data(temps, T2_vals)
             l_sortie.set_data(temps, T3_vals)
