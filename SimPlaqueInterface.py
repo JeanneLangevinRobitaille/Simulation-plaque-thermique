@@ -199,9 +199,7 @@ def simulation(data):
     
     #Positions des différentes thermistances
     j1,i1 = xToKnot(data["T1_x_mm"]), yToKnot(data["T1_y_mm"])
-    
     j2,i2 = xToKnot(data["T2_x_mm"]), yToKnot(data["T2_y_mm"])
-    
     j3,i3 = xToKnot(data["T3_x_mm"]), yToKnot(data["T3_y_mm"])
     
     #Positions des différentes composantes
