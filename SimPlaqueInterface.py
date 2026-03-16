@@ -11,7 +11,7 @@ root.title("Simulateur de plaque asservie en température")
 root.geometry('1200x1100')
 running = False
 
-#Variablesa de sortie
+#Variables de sortie
 #==========================
 data_out = None
 results_out = None
@@ -167,50 +167,49 @@ def simulation(data):
     global running, data_out, results_out
 
     #Espace de la plaque
-    x = np.linspace(-params["l_mm"].get()/2, 
-                    params["l_mm"].get()/2, int(params["res"].get())+1)
-    y = np.linspace(0, params["L_mm"].get(), int(params["res"].get())+1)
+    x = np.linspace(-data["l_mm"]/2, 
+                    data["l_mm"]/2, int(data["res"])+1)
+    y = np.linspace(0, data["L_mm"], int(data["res"])+1)
     X, Y = np.meshgrid(x, y)
 
     #Valeurs calculés simples
-    dx = params["l_mm"].get() / (params["res"].get()-1)
-    dy = params["L_mm"].get() / (params["res"].get()-1)
-    centre = int(params["res"].get() // 2)
-    dt = 0.2 * min(dx, dy)**2 / params["alpha"].get()
-    dt = min(dt, 0.5/(params["alpha"].get()*((1/dx**2)+(1/dy**2))))
-    volume_entree = (2*dx)*(2*dy)*params["e_mm"].get()
-    Q_entree = (params["P_W"].get()) / volume_entree
+    dx = params["l_mm"].get() / (data["res"]-1)
+    dy = params["L_mm"].get() / (data["res"]-1)
+    dt = 0.2 * min(dx, dy)**2 / data["alpha"]
+    dt = min(dt, 0.5/(data["alpha"]*((1/dx**2)+(1/dy**2))))
+    volume_entree = (2*dx)*(2*dy)*data["e_mm"]
+    Q_entree = (data["P_W"]) / volume_entree
 
-    T = np.full_like(X, params["Tamb_C"].get(), dtype=float)
+    T = np.full_like(X, data["Tamb_C"], dtype=float)
     Tn = T.copy()
 
     def xToKnot(x_coord):
-        return int(round((x_coord + params["l_mm"].get()/2) / dx))
+        return int(round((x_coord + data["l_mm"]/2) / dx))
         
     def yToKnot(y_coord):
         return int(round(y_coord / dy))
 
     def heatCalc(T, Tn):
         #Équation de diffusion thermique
-        Tn[1:-1,1:-1] = T[1:-1,1:-1] + params["alpha"].get() *dt*(
+        Tn[1:-1,1:-1] = T[1:-1,1:-1] + data["alpha"] *dt*(
                 (T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) / dx**2 +
                 (T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1]) / dy**2)
         
         #Chaleur ajoutée par le TEC
-        j_tec, i_tec = xToKnot(params["TEC_x_mm"].get()), yToKnot(params["TEC_y_mm"].get())
+        j_tec, i_tec = xToKnot(data["TEC_x_mm"]), yToKnot(data["TEC_y_mm"])
         Tn[i_tec:i_tec+2, j_tec-1:j_tec+1] += ((Q_entree*dt)
-                /(params["rho"].get() * params["Cp"].get() ))
+                /(data["rho"] * data["Cp"]))
         
         #Effet Joule de la résistance
-        j_R, i_R = xToKnot(params["pert_x_mm"].get()), yToKnot(params["pert_y_mm"].get())
-        Tn[i_R:i_R+2, j_R-1:j_R+1] += ((params["tension_resistance"].get())**2 * dt)/(
-            params["val_resistance"].get()*params["rho"].get() * params["Cp"].get()
-            * params["e_mm"].get() * dx * dy)
+        j_R, i_R = xToKnot(data["pert_x_mm"]), yToKnot(data["pert_y_mm"])
+        Tn[i_R:i_R+2, j_R-1:j_R+1] += ((data["tension_resistance"])**2 * dt)/(
+            data["val_resistance"] * data["rho"] * data["Cp"]
+            * data["e_mm"] * dx * dy)
         
         #Effet de la convection
-        Tn[1:-1, 1:-1] -= (params["h"].get() *dt/(params["rho"].get() *
-                params["Cp"].get() * 
-                params["e_mm"].get()))*(T[1:-1,1:-1]-params["Tamb_C"].get())
+        Tn[1:-1, 1:-1] -= (data["h"] *dt/(data["rho"] *
+                data["Cp"] * 
+                data["e_mm"]))*(T[1:-1,1:-1] - data["Tamb_C"])
         
         #Conditions aux limites
         Tn[0,:] = Tn[1,:]
@@ -255,8 +254,8 @@ def simulation(data):
     l_centre, = ligne_temperature.plot([], [], label="T2")
     l_sortie, = ligne_temperature.plot([], [], label="T3")
     ligne_temperature.set_title(f"t = {time_sim}s")
-    ligne_temperature.set_xlim(0, params["t_s"].get())
-    ligne_temperature.set_ylim(params["Tamb_C"].get(), params["Tamb_C"].get() + 5)
+    ligne_temperature.set_xlim(0, data["t_s"])
+    ligne_temperature.set_ylim(data["Tamb_C"], data["Tamb_C"] + 5)
     ligne_temperature.set_xlabel("t [s]")
     ligne_temperature.set_ylabel("T [°C]")
     ligne_temperature.legend()
@@ -267,7 +266,7 @@ def simulation(data):
             plt.close(fig)
             return
         for _ in range(steps_per_frame):
-            if time_sim >= params["t_s"].get():
+            if time_sim >= data["t_s"]:
                 break
             Tn = heatCalc(T, Tn)
             T, Tn = Tn, T
@@ -275,17 +274,17 @@ def simulation(data):
         
         temps.append(time_sim)
 
-        j1,i1 = xToKnot(params["T1_x_mm"].get()), yToKnot(params["T1_y_mm"].get())
+        j1,i1 = xToKnot(data["T1_x_mm"]), yToKnot(data["T1_y_mm"])
         T1_vals.append(T[i1,j1])
 
-        j2,i2 = xToKnot(params["T2_x_mm"].get()), yToKnot(params["T2_y_mm"].get())
+        j2,i2 = xToKnot(data["T2_x_mm"]), yToKnot(data["T2_y_mm"])
         T2_vals.append(T[i2,j2])
 
-        j3,i3 = xToKnot(params["T3_x_mm"].get()), yToKnot(params["T3_y_mm"].get())
+        j3,i3 = xToKnot(data["T3_x_mm"]), yToKnot(data["T3_y_mm"])
         T3_vals.append(T[i3,j3])
 
         frame_count += 1
-        if frame_count % params["frames_showed"].get() == 0:
+        if frame_count % data["frames_showed"] == 0:
             surf.remove()
             surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis', alpha=0.9, shade=False)
             l_entree.set_data(temps, T1_vals)
