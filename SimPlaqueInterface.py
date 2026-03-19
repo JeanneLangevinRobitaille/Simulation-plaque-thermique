@@ -172,8 +172,8 @@ def simulation(data):
     X, Y = np.meshgrid(x, y)
 
     #Valeurs calculées simples
-    dx = params["l_mm"].get() / (data["res"]-1)
-    dy = params["L_mm"].get() / (data["res"]-1)
+    dx = data["l_mm"] / (data["res"]-1)
+    dy = data["L_mm"] / (data["res"]-1)
     dt = 0.2 * min(dx, dy)**2 / data["alpha"]
     dt = min(dt, 0.5/(data["alpha"]*((1/dx**2)+(1/dy**2))))
     volume_entree = (2*dx)*(2*dy)*data["e_mm"]
@@ -343,7 +343,7 @@ root.mainloop()
 
 if (path := params["entry_filepath"].get()):
     print(path)
-    #add function for file JSON
+    #add function for file csv
 
 print(data_out)
 print(results_out)
