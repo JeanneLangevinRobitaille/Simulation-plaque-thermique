@@ -327,6 +327,18 @@ def cancel():
     global running
     print("Simulation canceled")
     running = False
+
+def save():
+    global running
+    print("Adding filepath for Save")
+    #for this function, make a window pop up to specify the file type, name and location
+    #put the adress in the appropriate spot in the interface
+
+def input():
+    global running
+    print('Adding filepath for Input')
+    #for this function, make a window pop up to specifiy the input file for the parameters
+    #put the adress in the appropriate spot in the interface    
     
 #Boutons
 #==========================
@@ -341,11 +353,17 @@ tk.Button(frame_btn, text="Cancel", width=15,
           bg="red", fg="white",
           command=cancel).pack(side="left", padx=10)
 
+tk.Button(frame_btn, text='Save', width=15,bg="blue", fg="white",
+          command=save).pack(side="left", padx=10)
+
+tk.Button(frame_btn, text='Input', width=15,bg="violet", fg="white",
+          command=input).pack(side="left", padx=10)
+
 root.mainloop()
 
 if (path := params["entry_filepath"].get()):
     print(path)
-    #add function for file csv
+    #add function for json file output
 
 print(data_out)
 print(results_out)
