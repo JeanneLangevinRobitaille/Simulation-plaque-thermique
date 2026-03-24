@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import tkinter as tk
 from tkinter import ttk
+from tkinter import filedialog
+import json
 
 #Fenêtre de l'interface
 #==========================
@@ -26,10 +28,10 @@ params = {
     "t_s": tk.DoubleVar(value=150),
     "res": tk.DoubleVar(value=50),
     "Tamb_C": tk.DoubleVar(value=20),
-    "alpha": tk.DoubleVar(value=149.81),
-    "rho": tk.DoubleVar(value=0.00434),
-    "Cp": tk.DoubleVar(value=2.275),
-    "h": tk.DoubleVar(value=9.31e-5),
+    "alpha": tk.DoubleVar(value=97.0),
+    "rho": tk.DoubleVar(value=2.7e3),
+    "Cp": tk.DoubleVar(value=0.9),
+    "h": tk.DoubleVar(value=5.0e-5),
     "TEC_x_mm": tk.DoubleVar(value=0),
     "TEC_y_mm": tk.DoubleVar(value=5),
     "T1_x_mm": tk.DoubleVar(value=0),
