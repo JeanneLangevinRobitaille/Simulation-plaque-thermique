@@ -29,7 +29,7 @@ params = {
     "res": tk.DoubleVar(value=50),
     "Tamb_C": tk.DoubleVar(value=20),
     "alpha": tk.DoubleVar(value=97.0),
-    "rho": tk.DoubleVar(value=2.7e3),
+    "rho": tk.DoubleVar(value=2.7e-3),
     "Cp": tk.DoubleVar(value=0.9),
     "h": tk.DoubleVar(value=5.0e-5),
     "TEC_x_mm": tk.DoubleVar(value=0),
@@ -331,15 +331,45 @@ def cancel():
 def save():
     global running
     print("Adding filepath for Save")
-    #for this function, make a window pop up to specify the file type, name and location
-    #put the adress in the appropriate spot in the interface
+    filepath = filedialog.asksaveasfilename(
+        defaultextension=".json",
+        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        title="Choisir où sauvegarder les résultats"
+    )
+    if filepath:
+        params["output_filepath"].set(filepath)
 
+def save_results():
+    if results_out is None or data_out is None:
+        print("Aucune donnée à sauvegarder")
+        return
+    filepath = params["output_filepath"].get()
+    if not filepath:
+        print("Aucun chemin sélectionné")
+        return
+    output = {
+        "parametres": data_out,
+        "resultats": results_out
+    }
+    with open(filepath, "w") as f:
+        json.dump(
+            output,
+            f,
+            indent=4,
+            default=lambda x: x.item() if isinstance(x, np.generic) else x
+        )
+    print(f"Résultats sauvegardés dans {filepath}")
+    
 def input():
     global running
     print('Adding filepath for Input')
     #for this function, make a window pop up to specifiy the input file for the parameters
-    #put the adress in the appropriate spot in the interface    
-    
+    #put the adress in the appropriate spot in the interface  
+
+def on_closing():
+    save_results()
+    root.destroy()
+
 #Boutons
 #==========================
 frame_btn = ttk.Frame(root)
@@ -359,11 +389,8 @@ tk.Button(frame_btn, text='Save', width=15,bg="blue", fg="white",
 tk.Button(frame_btn, text='Input', width=15,bg="violet", fg="white",
           command=input).pack(side="left", padx=10)
 
+root.protocol("WM_DELETE_WINDOW", on_closing)
 root.mainloop()
-
-if (path := params["entry_filepath"].get()):
-    print(path)
-    #add function for json file output
 
 print(data_out)
 print(results_out)
