@@ -10,7 +10,7 @@ import json
 #==========================
 root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
-root.geometry('1200x1200')
+root.geometry('1400x1200')
 running = False
 
 #Variables de sortie
@@ -43,15 +43,13 @@ params = {
     "pert_x_mm": tk.DoubleVar(value=0),
     "pert_y_mm": tk.DoubleVar(value=38),
     "val_resistance": tk.DoubleVar(value=25.0),
-    "tension_resistance": tk.DoubleVar(value=6.0),
+    "tension_resistance": tk.DoubleVar(value=1.0),
     "frames_showed": tk.DoubleVar(value=1),
     "entry_filepath": tk.StringVar(value = ""),
     "output_filepath": tk.StringVar(value = "")
     }
 
-#add the parameter file functionality here
-
-#Fonctions affichage
+#Fonctions affichage dans la fenêtre (modèles pour les titres)
 #==========================
 def section_title(parent, text):
     ttk.Label(parent, text=text,
@@ -68,7 +66,7 @@ def coord_field(parent, row, label, varx, vary, unit):
     ttk.Entry(parent, textvariable=vary, width=5).grid(row=row, column=2)
     ttk.Label(parent, text=unit).grid(row=row, column=3, padx=5)
 
-#Texte d'instruction
+#Texte d'instructions dans la fenêtre
 #==========================
 header_frame = ttk.Frame(root)
 header_frame.pack(fill="x", pady=(15, 10))
@@ -85,11 +83,11 @@ ttk.Label(header_frame,
         text="Appuyer sur Input pour spécifier l'adresse d'un fichier de paramètres",
         font=("Arial", 11, "italic")).pack()
 ttk.Label(header_frame,
-        text="Fermer la fenêtre pour sauvegarder les données brutes de la simulation",
+        text="Appuyer sur Exit pour sauvegarder les données brutes de la simulation",
         font=("Arial", 11, "italic")).pack()
 ttk.Separator(root, orient="horizontal").pack(fill="x", pady=10)
 
-#Structure principale
+#Structure principale de la fenêtre
 #==========================
 main_frame = ttk.Frame(root)
 main_frame.pack(fill="both", expand=True, padx=30)
@@ -171,6 +169,8 @@ ttk.Label(frame_pert, text="V").grid(row=2, column=3, padx=5)
 #Simulation thermique
 #==========================
 def simulation(data):
+    """Fonction principale qui fait la simulation thermique, ce qui est appelé par FuncAnimation"""
+
     global running, data_out, results_out
 
     #Espace de la plaque
@@ -195,13 +195,16 @@ def simulation(data):
     res_coeff = (data["tension_resistance"]**2 * dt)/(
         data["val_resistance"]*data["rho"]*data["Cp"]*data["e_mm"]*dx*dy)
 
+    #Valeurs initiales de l'espace de la plaque
     T = np.full_like(X, data["Tamb_C"], dtype=np.float32)
     Tn = T.copy()
 
     def xToKnot(x_coord):
+        """Prend la coordonnée en x [mm] et donne une valeur approximative de noeud sur la plaque"""
         return int(round((x_coord + data["l_mm"]/2) / dx))
         
     def yToKnot(y_coord):
+        """Prend la coordonnée en y [mm] et donne une valeur approximative de noeud sur la plaque"""
         return int(round(y_coord / dy))
     
     #Positions des différentes thermistances
@@ -214,16 +217,22 @@ def simulation(data):
     j_R, i_R = xToKnot(data["pert_x_mm"]), yToKnot(data["pert_y_mm"])
 
     def heatCalc(T, Tn):
+        """Le coeur de la simulation, la fonction qui fait le calcul discret de la fonction de diffusion"""
+
+        #Fonction de diffusion classique
         Tn[1:-1,1:-1] = T[1:-1,1:-1] + (
             cx*(T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) +
             cy*(T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1])
         )
 
+        #Convection
         Tn[1:-1,1:-1] -= conv_coeff*(T[1:-1,1:-1] - data["Tamb_C"])
 
-        Tn[i_tec:i_tec+2, j_tec-1:j_tec+1] += tec_coeff
-        Tn[i_R:i_R+2, j_R-1:j_R+1] += res_coeff
+        #Ajout par les différents éléments
+        Tn[i_tec:i_tec+2, j_tec-1:j_tec+1] += tec_coeff #le TEC
+        Tn[i_R:i_R+2, j_R-1:j_R+1] += res_coeff #la résistance
 
+        #Conditions limites pour la stabilité
         Tn[0,:] = Tn[1,:]
         Tn[-1,:] = Tn[-2,:]
         Tn[:,0] = Tn[:,1]
@@ -244,6 +253,8 @@ def simulation(data):
 
     time_sim = 0.0
 
+    #Initialisation des graphiques
+    #==========================
     surface_temperature = fig.add_subplot(121, projection='3d')
     surf = surface_temperature.plot_surface(
         X, Y, T,
@@ -279,6 +290,8 @@ def simulation(data):
     ligne_temperature.legend()
 
     def update(frame):
+        """Fonction de mise à jour des graphiques et des listes d'informations"""
+
         nonlocal T, Tn, time_sim, surf, frame_count
 
         if not running:
@@ -313,13 +326,14 @@ def simulation(data):
             p3._offsets3d = ([X[i3,j3]], [Y[i3,j3]], [T[i3,j3]])
             ligne_temperature.set_title(f"t = {time_sim:.2f} s")
 
+    #Animation des choses, prend update() en entrée
     ani = FuncAnimation(fig, update, interval=40)
     plt.show()
 
     data_out = data.copy()
     results_out = {"temps": temps, "T1": T1_vals, "T2": T2_vals, "T3": T3_vals}
 
-#Controle
+#Contrôle des fonctions de l'interface
 #==========================
 def start():
     global running
@@ -369,14 +383,13 @@ def save_results():
 def input():
     global running
     print('Adding filepath for Input')
-    #for this function, make a window pop up to specifiy the input file for the parameters
-    #put the adress in the appropriate spot in the interface  
+    #Left blank for now to know what will be given at the test
 
 def on_closing():
     save_results()
     root.destroy()
 
-#Boutons
+#Boutons de l'interface
 #==========================
 frame_btn = ttk.Frame(root)
 frame_btn.pack(pady=45)
@@ -395,5 +408,7 @@ tk.Button(frame_btn, text='Save', width=15,bg="blue", fg="white",
 tk.Button(frame_btn, text='Input', width=15,bg="violet", fg="white",
           command=input).pack(side="left", padx=10)
 
-root.protocol("WM_DELETE_WINDOW", on_closing)
+tk.Button(frame_btn, text='Exit', width=15,bg="orange", fg="white",
+          command=on_closing).pack(side="left", padx=10)
+
 root.mainloop()
