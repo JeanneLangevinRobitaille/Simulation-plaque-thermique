@@ -10,7 +10,7 @@ import json
 #==========================
 root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
-root.geometry('1200x1100')
+root.geometry('1200x1200')
 running = False
 
 #Variables de sortie
@@ -77,6 +77,12 @@ ttk.Label(header_frame,
         font=("Arial", 11, "italic")).pack()
 ttk.Label(header_frame,
         text="Appuyer sur CLOSE pour fermer la simulation en gardant ses données",
+        font=("Arial", 11, "italic")).pack()
+ttk.Label(header_frame,
+        text="Appuyer sur Save pour spécifier l'adresse de sauvegarde des données",
+        font=("Arial", 11, "italic")).pack()
+ttk.Label(header_frame,
+        text="Appuyer sur Input pour spécifier l'adresse d'un fichier de paramètres",
         font=("Arial", 11, "italic")).pack()
 ttk.Label(header_frame,
         text="Fermer la fenêtre pour sauvegarder les données brutes de la simulation",
@@ -391,6 +397,3 @@ tk.Button(frame_btn, text='Input', width=15,bg="violet", fg="white",
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
 root.mainloop()
-
-print(data_out)
-print(results_out)
