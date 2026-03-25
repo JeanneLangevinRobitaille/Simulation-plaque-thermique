@@ -73,10 +73,10 @@ def coord_field(parent, row, label, varx, vary, unit):
 header_frame = ttk.Frame(root)
 header_frame.pack(fill="x", pady=(15, 10))
 ttk.Label(header_frame,
-        text="Appuyer sur Go pour activer la simulation",
+        text="Appuyer sur GO pour activer la simulation",
         font=("Arial", 11, "italic")).pack()
 ttk.Label(header_frame,
-        text="Appuyer sur Cancel pour l'interrompre et/ou changer ses paramètres",
+        text="Appuyer sur CLOSE pour fermer la simulation en gardant ses données",
         font=("Arial", 11, "italic")).pack()
 ttk.Label(header_frame,
         text="Fermer la fenêtre pour sauvegarder les données brutes de la simulation",
@@ -323,7 +323,7 @@ def start():
         data = {k: v.get() for k, v in params.items()}
         simulation(data)
 
-def cancel():
+def close():
     global running
     print("Simulation canceled")
     running = False
@@ -379,9 +379,9 @@ tk.Button(frame_btn, text="GO", width=15,
           bg="green", fg="white",
           command=start).pack(side="left", padx=10)
 
-tk.Button(frame_btn, text="Cancel", width=15,
+tk.Button(frame_btn, text="CLOSE", width=15,
           bg="red", fg="white",
-          command=cancel).pack(side="left", padx=10)
+          command=close).pack(side="left", padx=10)
 
 tk.Button(frame_btn, text='Save', width=15,bg="blue", fg="white",
           command=save).pack(side="left", padx=10)
