@@ -100,11 +100,9 @@ left_frame = ttk.Frame(main_frame)
 left_frame.grid(row=0, column=0, sticky="nw")
 
 #Section pour les fichiers JSON
-section_title(left_frame, "Chemin d'accès des fichiers")
 frame_geo = ttk.Frame(left_frame)
 frame_geo.pack(anchor="w")
-field(frame_geo, 0, "Ficher d'entrée", params["entry_filepath"], '')
-field(frame_geo, 1, "Ficher de sortie", params["output_filepath"], '')
+field(frame_geo, 0, "Ficher de sauvegarde", params["output_filepath"], '')
 
 #Section paramètres de la plaque
 section_title(left_frame, "Paramètres de la plaque")
@@ -381,9 +379,22 @@ def save_results():
     print(f"Résultats sauvegardés dans {filepath}")
     
 def input():
-    global running
     print('Adding filepath for Input')
-    #Left blank for now to know what will be given at the test
+    filepath = filedialog.askopenfilename(
+        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        title="Choisir un fichier de paramètres")
+    if not filepath:
+        print("Aucun fichier sélectionné")
+        return
+    params["entry_filepath"].set(filepath)
+    with open(filepath, "r") as f:
+        data = json.load(f)
+    for key in params:
+        if key in data:
+            params[key].set(data[key])
+        else:
+            print(f"Clé manquante dans le JSON : {key}")
+    print("Paramètres chargés avec succès")
 
 def on_closing():
     save_results()
