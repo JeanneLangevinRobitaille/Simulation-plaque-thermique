@@ -12,6 +12,7 @@ root.title("Simulateur de plaque asservie en température")
 root.geometry('1400x1200')
 running = False
 paused = False
+after_id = None
 
 #Variables de sortie
 #==========================
@@ -248,7 +249,7 @@ def simulation(data):
         if not running:
             plt.close(fig)
             return
-
+    
         # 🔥 Puissance dynamique
         P = params["P_W"].get()
         Q = P / volume_entree
@@ -281,13 +282,14 @@ def simulation(data):
             l2.set_data(temps, T2_vals)
             l3.set_data(temps, T3_vals)
 
-            if paused:
-                ligne_temperature.set_title(f"t = {time_sim:.2f} s")
-            else:
-                ligne_temperature.set_title(f"t = {time_sim:.2f} s")
+            ligne_temperature.set_title(
+                f"{'PAUSE' if paused else 't'} = {time_sim:.2f} s")
 
-            plt.draw()
-        root.after(40, update, None)
+        fig.canvas.draw_idle()
+        global after_id
+        if running:
+            after_id = root.after(40, update, None)
+        root.update_idletasks()
 
     update(None)
     plt.show(block=False)
@@ -298,12 +300,13 @@ def simulation(data):
 #Contrôle des fonctions de l'interface
 #==========================
 def start():
-    global running
-    if not running:
-        running = True
-        print("Simulation started")
-        data = {k: v.get() for k, v in params.items()}
-        simulation(data)
+    global running, after_id
+    if running:
+        return 
+    running = True
+    print("Simulation started")
+    data = {k: v.get() for k, v in params.items()}
+    simulation(data)
 
 def close():
     global running
@@ -366,6 +369,13 @@ def pause_resume():
     print("Paused" if paused else "Resumed")
 
 def on_closing():
+    global after_id, running
+    running = False
+    if after_id is not None:
+        try:
+            root.after_cancel(after_id)
+        except:
+            pass
     save_results()
     root.destroy()
 
