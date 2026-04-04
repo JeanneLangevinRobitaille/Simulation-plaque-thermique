@@ -326,7 +326,7 @@ def simulation(data):
 
     #Animation des choses, prend update() en entrée
     ani = FuncAnimation(fig, update, interval=40)
-    plt.show()
+    plt.ion()
 
     data_out = data.copy()
     results_out = {"temps": temps, "T1": T1_vals, "T2": T2_vals, "T3": T3_vals}
@@ -398,6 +398,7 @@ def input():
 
 def on_closing():
     save_results()
+    plt.close()
     root.destroy()
 
 #Boutons de l'interface
