@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
@@ -11,8 +12,6 @@ root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
 root.geometry('1400x1200')
 running = False
-paused = False
-after_id = None
 
 #Variables de sortie
 #==========================
@@ -168,53 +167,70 @@ ttk.Label(frame_pert, text="V").grid(row=2, column=3, padx=5)
 #Simulation thermique
 #==========================
 def simulation(data):
+    """Fonction principale qui fait la simulation thermique, ce qui est appelé par FuncAnimation"""
+
     global running, data_out, results_out
 
     #Espace de la plaque
-    x = np.linspace(-data["l_mm"]/2, data["l_mm"]/2, int(data["res"])+1)
+    x = np.linspace(-data["l_mm"]/2, 
+                    data["l_mm"]/2, int(data["res"])+1)
     y = np.linspace(0, data["L_mm"], int(data["res"])+1)
     X, Y = np.meshgrid(x, y)
 
+    #Valeurs calculées simples
     dx = data["l_mm"] / (data["res"]-1)
     dy = data["L_mm"] / (data["res"]-1)
-
     dt = 0.2 * min(dx, dy)**2 / data["alpha"]
     dt = min(dt, 0.5/(data["alpha"]*((1/dx**2)+(1/dy**2))))
-
     volume_entree = (2*dx)*(2*dy)*data["e_mm"]
+    Q_entree = (data["P_W"]) / volume_entree
 
+    #Valeurs calculées thermiques
     cx = data["alpha"]*dt/dx**2
     cy = data["alpha"]*dt/dy**2
     conv_coeff = data["h"]*dt/(data["rho"]*data["Cp"]*data["e_mm"])
+    tec_coeff = (Q_entree*dt)/(data["rho"]*data["Cp"])
+    res_coeff = (data["tension_resistance"]**2 * dt)/(
+        data["val_resistance"]*data["rho"]*data["Cp"]*data["e_mm"]*dx*dy)
 
-    # Température initiale
+    #Valeurs initiales de l'espace de la plaque
     T = np.full_like(X, data["Tamb_C"], dtype=np.float32)
     Tn = T.copy()
 
     def xToKnot(x_coord):
+        """Prend la coordonnée en x [mm] et donne une valeur approximative de noeud sur la plaque"""
         return int(round((x_coord + data["l_mm"]/2) / dx))
         
     def yToKnot(y_coord):
+        """Prend la coordonnée en y [mm] et donne une valeur approximative de noeud sur la plaque"""
         return int(round(y_coord / dy))
     
+    #Positions des différentes thermistances
     j1,i1 = xToKnot(data["T1_x_mm"]), yToKnot(data["T1_y_mm"])
     j2,i2 = xToKnot(data["T2_x_mm"]), yToKnot(data["T2_y_mm"])
     j3,i3 = xToKnot(data["T3_x_mm"]), yToKnot(data["T3_y_mm"])
-
+    
+    #Positions des différentes composantes
     j_tec, i_tec = xToKnot(data["TEC_x_mm"]), yToKnot(data["TEC_y_mm"])
     j_R, i_R = xToKnot(data["pert_x_mm"]), yToKnot(data["pert_y_mm"])
 
-    def heatCalc(T, Tn, tec_coeff, res_coeff):
+    def heatCalc(T, Tn):
+        """Le coeur de la simulation, la fonction qui fait le calcul discret de la fonction de diffusion"""
+
+        #Fonction de diffusion classique
         Tn[1:-1,1:-1] = T[1:-1,1:-1] + (
             cx*(T[1:-1,2:] - 2*T[1:-1,1:-1] + T[1:-1,:-2]) +
             cy*(T[2:,1:-1] - 2*T[1:-1,1:-1] + T[:-2,1:-1])
         )
 
+        #Convection
         Tn[1:-1,1:-1] -= conv_coeff*(T[1:-1,1:-1] - data["Tamb_C"])
 
-        Tn[i_tec:i_tec+2, j_tec-1:j_tec+1] += tec_coeff
-        Tn[i_R:i_R+2, j_R-1:j_R+1] += res_coeff
+        #Ajout par les différents éléments
+        Tn[i_tec:i_tec+2, j_tec-1:j_tec+1] += tec_coeff #le TEC
+        Tn[i_R:i_R+2, j_R-1:j_R+1] += res_coeff #la résistance
 
+        #Conditions limites pour la stabilité
         Tn[0,:] = Tn[1,:]
         Tn[-1,:] = Tn[-2,:]
         Tn[:,0] = Tn[:,1]
@@ -225,74 +241,92 @@ def simulation(data):
     steps_per_frame = 150
     frame_count = 0
     temps, T1_vals, T2_vals, T3_vals = [], [], [], []
-
+    
+    #Positionnement des fenetres
     fig = plt.figure(figsize=(11,5))
     manager = plt.get_current_fig_manager()
     screen_width = manager.window.winfo_screenwidth()
-    manager.window.wm_geometry(f"+{screen_width - 1100}+50")
+    fig_width = 1100
+    manager.window.wm_geometry(f"+{screen_width - fig_width}+50")
 
     time_sim = 0.0
 
-    # Graphiques
+    #Initialisation des graphiques
+    #==========================
     surface_temperature = fig.add_subplot(121, projection='3d')
-    surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis', shade=False)
-
+    surf = surface_temperature.plot_surface(
+        X, Y, T,
+        cmap='viridis',
+        shade=False,
+        rstride=2,
+        cstride=2)
+    surface_temperature.set_zlim(data["Tamb_C"], data["Tamb_C"] + 10)
+    surface_temperature.set_xlabel("x [mm]")
+    surface_temperature.set_ylabel("y [mm]")
+    p1 = surface_temperature.scatter([], [], [], s=100, c="blue",
+                                 edgecolors="black",
+                                 depthshade=False,
+                                 label='T1')
+    p2 = surface_temperature.scatter([], [], [], s=100, c="orange",
+                                    edgecolors="black",
+                                    depthshade=False,
+                                    label="T2")
+    p3 = surface_temperature.scatter([], [], [], s=100, c="lime",
+                                    edgecolors="black",
+                                    depthshade=False,
+                                    label="T3")
+    surface_temperature.legend()
     ligne_temperature = fig.add_subplot(122)
-    l1, = ligne_temperature.plot([], [], label="T1")
-    l2, = ligne_temperature.plot([], [], label="T2")
-    l3, = ligne_temperature.plot([], [], label="T3")
+    l_entree, = ligne_temperature.plot([], [], label="T1")
+    l_centre, = ligne_temperature.plot([], [], label="T2")
+    l_sortie, = ligne_temperature.plot([], [], label="T3")
+    ligne_temperature.set_title(f"t = {time_sim}s")
+    ligne_temperature.set_xlim(0, data["t_s"])
+    ligne_temperature.set_ylim(data["Tamb_C"], data["Tamb_C"] + 5)
+    ligne_temperature.set_xlabel("t [s]")
+    ligne_temperature.set_ylabel("T [°C]")
     ligne_temperature.legend()
 
-    def update(_):
+    def update(frame):
+        """Fonction de mise à jour des graphiques et des listes d'informations"""
+
         nonlocal T, Tn, time_sim, surf, frame_count
 
         if not running:
             plt.close(fig)
             return
-    
-        # 🔥 Puissance dynamique
-        P = params["P_W"].get()
-        Q = P / volume_entree
-        tec_coeff = (Q * dt) / (data["rho"] * data["Cp"])
-
-        # 🔥 Résistance dynamique
-        R = params["val_resistance"].get()
-        V = params["tension_resistance"].get()
-        res_coeff = (V**2 * dt)/(R * data["rho"] * data["Cp"] * data["e_mm"] * dx * dy)
-
-        if not paused:
-            for _ in range(steps_per_frame):
-                if time_sim >= data["t_s"]:
-                    break
-                Tn = heatCalc(T, Tn, tec_coeff, res_coeff)
-                T, Tn = Tn, T
-                time_sim += dt
-
+        for _ in range(steps_per_frame):
+            if time_sim >= data["t_s"]:
+                break
+            Tn = heatCalc(T, Tn)
+            T, Tn = Tn, T
+            time_sim += dt
+        
         temps.append(time_sim)
         T1_vals.append(T[i1,j1])
         T2_vals.append(T[i2,j2])
         T3_vals.append(T[i3,j3])
 
         frame_count += 1
-        if frame_count % int(params["frames_showed"].get()) == 0:
+        if frame_count % data["frames_showed"] == 0:
             surf.remove()
-            surf = surface_temperature.plot_surface(X, Y, T, cmap='viridis')
+            surf = surface_temperature.plot_surface(
+                X, Y, T,
+                cmap='viridis',
+                shade=False,
+                rstride=2,
+                cstride=2)
+            l_entree.set_data(temps, T1_vals)
+            l_centre.set_data(temps, T2_vals)
+            l_sortie.set_data(temps, T3_vals)
+            p1._offsets3d = ([X[i1,j1]], [Y[i1,j1]], [T[i1,j1]])
+            p2._offsets3d = ([X[i2,j2]], [Y[i2,j2]], [T[i2,j2]])
+            p3._offsets3d = ([X[i3,j3]], [Y[i3,j3]], [T[i3,j3]])
+            ligne_temperature.set_title(f"t = {time_sim:.2f} s")
 
-            l1.set_data(temps, T1_vals)
-            l2.set_data(temps, T2_vals)
-            l3.set_data(temps, T3_vals)
-
-            ligne_temperature.set_title(
-                f"{'PAUSE' if paused else 't'} = {time_sim:.2f} s")
-
-        fig.canvas.draw_idle()
-        global after_id
-        if running:
-            after_id = root.after(40, update, None)
-        root.update_idletasks()
-
-    update(None)
-    plt.show(block=False)
+    #Animation des choses, prend update() en entrée
+    ani = FuncAnimation(fig, update, interval=40)
+    plt.show()
 
     data_out = data.copy()
     results_out = {"temps": temps, "T1": T1_vals, "T2": T2_vals, "T3": T3_vals}
@@ -300,13 +334,12 @@ def simulation(data):
 #Contrôle des fonctions de l'interface
 #==========================
 def start():
-    global running, after_id
-    if running:
-        return 
-    running = True
-    print("Simulation started")
-    data = {k: v.get() for k, v in params.items()}
-    simulation(data)
+    global running
+    if not running:
+        running = True
+        print("Simulation started")
+        data = {k: v.get() for k, v in params.items()}
+        simulation(data)
 
 def close():
     global running
@@ -363,19 +396,7 @@ def input():
             print(f"Clé manquante dans le JSON : {key}")
     print("Paramètres chargés avec succès")
 
-def pause_resume():
-    global paused
-    paused = not paused
-    print("Paused" if paused else "Resumed")
-
 def on_closing():
-    global after_id, running
-    running = False
-    if after_id is not None:
-        try:
-            root.after_cancel(after_id)
-        except:
-            pass
     save_results()
     root.destroy()
 
@@ -388,9 +409,9 @@ tk.Button(frame_btn, text="GO", width=15,
           bg="green", fg="white",
           command=start).pack(side="left", padx=10)
 
-tk.Button(frame_btn, text="Pause/Resume", width=15,
+tk.Button(frame_btn, text="CLOSE", width=15,
           bg="red", fg="white",
-          command=pause_resume).pack(side="left", padx=10)
+          command=close).pack(side="left", padx=10)
 
 tk.Button(frame_btn, text='Save', width=15,bg="blue", fg="white",
           command=save).pack(side="left", padx=10)
