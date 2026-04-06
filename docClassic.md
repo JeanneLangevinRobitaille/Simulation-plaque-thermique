@@ -1,14 +1,14 @@
 **1. À l'ouverture du repo**
 
-Lorsque le repositoire est ouvert pour la première fois, il devrait y avoir trois fichiers. 
-Le fichier principal contenant le simulateur est *SimPlaqueInterface.py*. Avant tout, il 
+Le fichier principal contenant le simulateur est *SimulateurClassic.py*. Avant tout, il 
 faut s'assurer que les bonnes librairies sont installée sur votre machine :
+
 - numpy
 - matplotlib
 - tkinter
 - json
 
-Pour activer le simulateur, il faut exécuter le fichier *SimPlaqueInterface.py* soit 
+Pour activer le simulateur, il faut exécuter le fichier *SimulateurClassic.py* soit 
 avec une commande du terminal ou en appuyant sur le bouton d'exécution de votre IDE.
 
 **2. L'interface**
