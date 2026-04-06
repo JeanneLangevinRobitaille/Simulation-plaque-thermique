@@ -277,10 +277,15 @@ def simulation(data):
         """Fonction de mise à jour des graphiques et des listes d'informations"""
 
         nonlocal T, Tn, time_sim, surf, frame_count
+        global paused
 
         if not running:
             plt.close(fig)
             return
+        
+        if paused:
+            return
+
         for _ in range(steps_per_frame):
             if time_sim >= data["t_s"]:
                 break
@@ -328,9 +333,9 @@ def start():
         simulation(data)
 
 def close():
-    global running
-    print("Simulation canceled")
-    running = False
+    global paused
+    paused = not paused
+    print("Paused" if paused else "Resumed")
 
 def save():
     global running
@@ -384,9 +389,11 @@ def input():
 
 def on_closing():
     global running
-    save_results()
     running = False
+    save_results()
     root.destroy()
+
+
 
 #Boutons de l'interface
 #==========================
