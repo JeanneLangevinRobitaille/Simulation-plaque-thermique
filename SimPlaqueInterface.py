@@ -166,7 +166,7 @@ def simulation(data):
     dt = 0.2 * min(dx, dy)**2 / data["alpha"]
     dt = min(dt, 0.5/(data["alpha"]*((1/dx**2)+(1/dy**2))))
     volume_entree = (2*dx)*(2*dy)*data["e_mm"]
-    
+
     #Valeurs calculées thermiques
     cx = data["alpha"]*dt/dx**2
     cy = data["alpha"]*dt/dy**2
@@ -315,6 +315,16 @@ def simulation(data):
                 shade=False,
                 rstride=2,
                 cstride=2)
+            
+            zmin = np.min(T)
+            zmax = np.max(T)
+            surface_temperature.set_zlim(zmin - 0.5, zmax + 0.5)
+
+            all_T = T1_vals + T2_vals + T3_vals
+            ymin = min(all_T)
+            ymax = max(all_T)
+            ligne_temperature.set_ylim(ymin - 0.2, ymax + 0.2)
+
             l_entree.set_data(temps, T1_vals)
             l_centre.set_data(temps, T2_vals)
             l_sortie.set_data(temps, T3_vals)
