@@ -5,7 +5,7 @@ Permet de voir comment l'énergie thermique du TEC et de la perturbation se prop
 travers la surface de la plaque. Le simulateur permet aussi de surveiller la progression 
 temporelle de la température à trois points différents et de sauvegarder les données sur votre machine. 
 
-**À l'ouverture du repo**
+**1. À l'ouverture du repo**
 
 Lorsque le repositoire est ouvert pour la première fois, il devrait y avoir trois fichiers. 
 Le fichier principal contenant le simulateur est *SimPlaqueInterface.py*. Avant tout, il 
@@ -18,7 +18,7 @@ faut s'assurer que les bonnes librairies sont installée sur votre machine :
 Pour activer le simulateur, il faut exécuter le fichier *SimPlaqueInterface.py* soit 
 avec une commande du terminal ou en appuyant sur le bouton d'exécution de votre IDE.
 
-**1. L'interface**
+**2. L'interface**
 
 Afin de faciliter l'interaction avec le simulateur, un interface est inclue pour servir 
 comme centre de contrôle. Dès que le simulateur est activé, la fenêtre de l'interface 
@@ -28,7 +28,7 @@ sur les lignes de texte et en utilisant le clavier. Les boutons de contrôle son
 ils contrôlent les fonctions majeures du simulateur. Les deux prochaines sections expliquent en plus grand détails 
 chacunes des caractéristiques de l'interface.
 
-**2. Les paramètres**
+**3. Les paramètres**
 
 La simulation fonctionne avec une grande variété de paramètres qui définissent la nature 
 de la plaque, de ses intrants et des points d'intérêt. Tous les paramètres peuvent être 
@@ -66,8 +66,15 @@ Les paramètres sont les suivants :
   - Résistance : en ohms, la valeur de résistance de la perturbation
   - Tension : en volts, la tension constante appliquée à la résistance perturbative
 
-**3. Les boutons**
+**4. Les boutons**
 
 Après avoir entré les paramètres voulus dans l'interface, le bouton *GO* active la simulation. Une 
 fenêtre secondaire apparait à côté de l'interface qui contient une représentation 3D de la plaque 
-ainsi qu'un graphique pour les données de température à travers le temps de T1, T2 et T3.
+ainsi qu'un graphique pour les données de température à travers le temps de T1, T2 et T3. À n'importe 
+quel moment, le bouton *Pause/Resume* met la simulation sur pause et la résume lorsqu'il est utilisé une 
+autre fois. Lorsque la simulation est figée, il est possible de changer la valeur de **Puissance entrée** et **Tension**. Le bouton *Save* ouvre une fenêtre du système de fichier de la machine et permet de 
+choisir l'endroit et le nom du fichier JSON qui sera créer et sauvegarder après que 
+le simulateur soit fermé. Le bouton *Input* fait la même chose que *Save*, sauf que le fichier JSON 
+contient une liste de paramètres qui sont automatiquement entrés dans l'interface. Un fichier 
+exemple *testparams.json* est inclue avec le repo. Finalement, le bouton *Exit* ferme toutes les fenêtres
+et sauvegarde les données dans le fichier JSON choisie s'il y a lieu.
