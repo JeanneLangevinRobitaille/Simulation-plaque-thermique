@@ -9,7 +9,12 @@ Lorsque le repositoire est ouvert pour la première fois, il devrait y avoir tro
 - matplotlib
 - tkinter
 - json
+
 Pour activer le simulateur, il faut exécuter le fichier *SimPlaqueInterface.py* soit avec une commande du terminal ou en appuyant sur le bouton d'exécution de votre IDE.
+
+**L'interface**
+
+Afin de faciliter l'interaction avec le simulateur, un interface est inclue pour servir comme centre de contrôle.
 
 **Les paramètres**
 
@@ -28,25 +33,20 @@ Les paramètres sont les suivants :
   - Température ambiante : en °C, la température de la pièce ou la température initale de la plaque
   - Saut d'image : un nombre entier $$N$$, donne le nombre de calculs effectués avant que la simulation se mette à jour
 - Paramètres physiques
- - $$\alpha$$ : en $$\text{mm}^2/s$$, 
- - $$\rho$$ : en $$\text{kg}^2/\text{mm}^3$$,
- - $$c_p$$ : en $$\text{J}/\text{mg}\cdot\text{K}$$,
- - $$h$$ : en $$\text{W}^2/\text{W}^2\cdot\text{K}$$, 
-- Coordonnées d'intérêt
-  - TEC :
-  - T1 :
-  - T2 :
-  - T3 :
+ - $$\alpha$$ : la diffusivité thermique en $$\text{mm}^2/s$$, la capacité au matériau à transferer la chaleur
+ - $$\rho$$ : la densité du matériau en $$\text{kg}^2/\text{mm}^3$$
+ - $$c_p$$ : la capacité calorifique massique du matériau en $$\text{J}/\text{mg}\cdot\text{K}$$, la capacité au matériau à stocker la chaleur
+ - $$h$$ : le coefficient de convection en $$\text{W}^2/\text{mm}^2\cdot\text{K}$$, l'intensité du transfert de chaleur entre la plaque et son environnement
+- Coordonnées d'intérêt (assume que (0,0) se trouve au centre du petit bord de la plaque)
+  - TEC : en mm, les coordonnées de l'actuateur thermoélectrique
+  - T1 : en mm, position de la première thermistance
+  - T2 : en mm, position de la deuxième thermistance
+  - T3 : en mm, position de la troisème thermistance
 - Perturbation
-  - Position :
-  - Résistance :
-  - Tension :
-
-**L'interface**
-
-Afin de faciliter l'interaction avec le simulateur, un interface est inclue pour servir comme centre de contrôle.
+  - Position : en mm, la position de la résistance perturbative
+  - Résistance : en ohms, la valeur de résistance de la perturbation
+  - Tension : en volts, la tension constante appliquée à la résistance perturbative
 
 **Utiliser le simulateur**
 
 Après avoir entré les paramètres voulus dans l'interface, le bouton *GO* active la simulation. Une fenêtre secondaire apparait à côté de l'interface qui contient une représentation 3D de la plaque ainsi qu'un graphique pour les données de température à travers le temps de T1, T2 et T3. 
-
