@@ -166,16 +166,13 @@ def simulation(data):
     dt = 0.2 * min(dx, dy)**2 / data["alpha"]
     dt = min(dt, 0.5/(data["alpha"]*((1/dx**2)+(1/dy**2))))
     volume_entree = (2*dx)*(2*dy)*data["e_mm"]
-    Q_entree = (data["P_W"]) / volume_entree
+    Q_entree = (params["P_W"].get()) / volume_entree
 
     #Valeurs calculées thermiques
     cx = data["alpha"]*dt/dx**2
     cy = data["alpha"]*dt/dy**2
     conv_coeff = data["h"]*dt/(data["rho"]*data["Cp"]*data["e_mm"])
-    tec_coeff = (Q_entree*dt)/(data["rho"]*data["Cp"])
-    res_coeff = (data["tension_resistance"]**2 * dt)/(
-        data["val_resistance"]*data["rho"]*data["Cp"]*data["e_mm"]*dx*dy)
-
+    
     #Valeurs initiales de l'espace de la plaque
     T = np.full_like(X, data["Tamb_C"], dtype=np.float32)
     Tn = T.copy()
@@ -199,7 +196,7 @@ def simulation(data):
     j_tec, i_tec = xToKnot(data["TEC_x_mm"]), yToKnot(data["TEC_y_mm"])
     j_R, i_R = xToKnot(data["pert_x_mm"]), yToKnot(data["pert_y_mm"])
 
-    def heatCalc(T, Tn):
+    def heatCalc(T, Tn, tec_coeff, res_coeff):
         """Le coeur de la simulation, la fonction qui fait le 
         calcul discret de la fonction de diffusion"""
 
@@ -285,11 +282,26 @@ def simulation(data):
         
         if paused:
             return
+        
+        # 🔥 Lire les valeurs en temps réel depuis l'interface
+        current_P = params["P_W"].get()
+        current_V = params["tension_resistance"].get()
+        current_R = params["val_resistance"].get()
+
+        # 🔥 Recalcul dynamique
+        volume_entree = (2*dx)*(2*dy)*data["e_mm"]
+        Q_entree = current_P / volume_entree
+
+        tec_coeff = (Q_entree * dt) / (data["rho"] * data["Cp"])
+
+        res_coeff = (current_V**2 * dt) / (
+            current_R * data["rho"] * data["Cp"] * data["e_mm"] * dx * dy
+        )
 
         for _ in range(steps_per_frame):
             if time_sim >= data["t_s"]:
                 break
-            Tn = heatCalc(T, Tn)
+            Tn = heatCalc(T, Tn, tec_coeff, res_coeff)
             T, Tn = Tn, T
             time_sim += dt
         
