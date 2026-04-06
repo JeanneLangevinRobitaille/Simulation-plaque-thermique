@@ -5,4 +5,6 @@ Permet de voir comment l'énergie thermique du TEC et de la perturbation se prop
 travers la surface de la plaque. Le simulateur permet aussi de surveiller la progression 
 temporelle de la température à trois points différents et de sauvegarder les données sur votre machine. 
 
-[Documentation de la version simple du simulateur](docClassic.md)
+Pour la documentation de la version courante du simulateur : [click](docUpgraded.md)
+
+Pour la documentation de la version simple du simulateur : [click](docClassic.md)
