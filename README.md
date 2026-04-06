@@ -4,7 +4,12 @@ La simulation de la plaque thermique du prototype pour le cours GPH-2104. Permet
 
 **À l'ouverture du repo**
 
-Lorsque le repositoire est ouvert pour la première fois, il devrait y avoir trois fichiers. Le fichier principal contenant le simulateur est *SimPlaqueInterface.py*. 
+Lorsque le repositoire est ouvert pour la première fois, il devrait y avoir trois fichiers. Le fichier principal contenant le simulateur est *SimPlaqueInterface.py*. Avant tout, il faut s'assurer que les bonnes librairies sont installée sur votre machine :
+- numpy
+- matplotlib
+- tkinter
+- json
+Pour activer le simulateur, il faut exécuter le fichier *SimPlaqueInterface.py* soit avec une commande du terminal ou en appuyant sur le bouton d'exécution de votre IDE.
 
 **Les paramètres**
 
@@ -13,20 +18,20 @@ La simulation fonctionne avec une grande variété de paramètres qui définisse
 Les paramètres sont les suivants :
 
 - Paramètres de la plaque
-  - Longueur :
-  - Largeur :
-  - Épaisseur :
+  - Longueur : en mm, la longueur du plus long côté de la plaque
+  - Largeur : en mm, la largeur du plus petit côté de la plaque
+  - Épaisseur : en mm, l'épaisseur de la plaque en métal
 - Paramètres de la simulation
-  - Puissance entrée :
-  - Temps simulation :
-  - Résolution :
-  - Température ambiante :
-  - Saut d'image :
+  - Puissance entrée : en watts, la puissance fourni par le TEC à la plaque 
+  - Temps simulation : en secondes, le temps de simulation voulu
+  - Résolution : un nombre entier $$N$$, le nombre de cellules totales de la plaque sera $$N^2$$
+  - Température ambiante : en °C, la température de la pièce ou la température initale de la plaque
+  - Saut d'image : un nombre entier $$N$$, donne le nombre de calculs effectués avant que la simulation se mette à jour
 - Paramètres physiques
- - $$\alpha$$ :
- - $$\rho$$ :
- - $$c_p$$ : 
- - $$h$$ : 
+ - $$\alpha$$ : en $$\text{mm}^2/s$$, 
+ - $$\rho$$ : en $$\text{kg}^2/\text{mm}^3$$,
+ - $$c_p$$ : en $$\text{J}/\text{mg}\cdot\text{K}$$,
+ - $$h$$ : en $$\text{W}^2/\text{W}^2\cdot\text{K}$$, 
 - Coordonnées d'intérêt
   - TEC :
   - T1 :
