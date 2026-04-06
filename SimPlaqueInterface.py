@@ -335,10 +335,11 @@ def simulation(data):
 
     #Animation des choses, prend update() en entrée
     ani = FuncAnimation(fig, update, interval=40)
-    plt.show()
-
+    
     data_out = data.copy()
     results_out = {"temps": temps, "T1": T1_vals, "T2": T2_vals, "T3": T3_vals}
+    
+    plt.show()
 
 #Contrôle des fonctions de l'interface
 #==========================
@@ -407,8 +408,8 @@ def input():
 
 def on_closing():
     global running
-    running = False
     save_results()
+    running = False
     root.destroy()
 
 #Boutons de l'interface
