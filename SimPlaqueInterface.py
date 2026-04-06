@@ -166,8 +166,7 @@ def simulation(data):
     dt = 0.2 * min(dx, dy)**2 / data["alpha"]
     dt = min(dt, 0.5/(data["alpha"]*((1/dx**2)+(1/dy**2))))
     volume_entree = (2*dx)*(2*dy)*data["e_mm"]
-    Q_entree = (params["P_W"].get()) / volume_entree
-
+    
     #Valeurs calculées thermiques
     cx = data["alpha"]*dt/dx**2
     cy = data["alpha"]*dt/dy**2
@@ -283,19 +282,16 @@ def simulation(data):
         if paused:
             return
         
-        # 🔥 Lire les valeurs en temps réel depuis l'interface
         current_P = params["P_W"].get()
         current_V = params["tension_resistance"].get()
-        current_R = params["val_resistance"].get()
 
-        # 🔥 Recalcul dynamique
-        volume_entree = (2*dx)*(2*dy)*data["e_mm"]
+        
         Q_entree = current_P / volume_entree
 
         tec_coeff = (Q_entree * dt) / (data["rho"] * data["Cp"])
 
         res_coeff = (current_V**2 * dt) / (
-            current_R * data["rho"] * data["Cp"] * data["e_mm"] * dx * dy
+            data["val_resistance"] * data["rho"] * data["Cp"] * data["e_mm"] * dx * dy
         )
 
         for _ in range(steps_per_frame):
