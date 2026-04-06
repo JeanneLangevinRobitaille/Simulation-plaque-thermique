@@ -10,8 +10,9 @@ import json
 #==========================
 root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
-root.geometry('1400x1200')
+root.geometry('1400x950')
 running = False
+paused = False
 
 #Variables de sortie
 #==========================
@@ -66,29 +67,10 @@ def coord_field(parent, row, label, varx, vary, unit):
     ttk.Entry(parent, textvariable=vary, width=5).grid(row=row, column=2)
     ttk.Label(parent, text=unit).grid(row=row, column=3, padx=5)
 
-#Texte d'instructions dans la fenêtre
+#Structure principale de la fenêtre
 #==========================
 header_frame = ttk.Frame(root)
 header_frame.pack(fill="x", pady=(15, 10))
-ttk.Label(header_frame,
-        text="Appuyer sur GO pour activer la simulation",
-        font=("Arial", 11, "italic")).pack()
-ttk.Label(header_frame,
-        text="Appuyer sur CLOSE pour fermer la simulation en gardant ses données",
-        font=("Arial", 11, "italic")).pack()
-ttk.Label(header_frame,
-        text="Appuyer sur Save pour spécifier l'adresse de sauvegarde des données",
-        font=("Arial", 11, "italic")).pack()
-ttk.Label(header_frame,
-        text="Appuyer sur Input pour spécifier l'adresse d'un fichier de paramètres",
-        font=("Arial", 11, "italic")).pack()
-ttk.Label(header_frame,
-        text="Appuyer sur Exit pour sauvegarder les données brutes de la simulation",
-        font=("Arial", 11, "italic")).pack()
-ttk.Separator(root, orient="horizontal").pack(fill="x", pady=10)
-
-#Structure principale de la fenêtre
-#==========================
 main_frame = ttk.Frame(root)
 main_frame.pack(fill="both", expand=True, padx=30)
 main_frame.columnconfigure(0, weight=3)
@@ -167,9 +149,10 @@ ttk.Label(frame_pert, text="V").grid(row=2, column=3, padx=5)
 #Simulation thermique
 #==========================
 def simulation(data):
-    """Fonction principale qui fait la simulation thermique, ce qui est appelé par FuncAnimation"""
+    """Fonction principale qui fait la simulation thermique, 
+    ce qui est appelé par FuncAnimation"""
 
-    global running, data_out, results_out
+    global running, paused, data_out, results_out
 
     #Espace de la plaque
     x = np.linspace(-data["l_mm"]/2, 
@@ -198,11 +181,13 @@ def simulation(data):
     Tn = T.copy()
 
     def xToKnot(x_coord):
-        """Prend la coordonnée en x [mm] et donne une valeur approximative de noeud sur la plaque"""
+        """Prend la coordonnée en x [mm] et donne une valeur approximative 
+        de noeud sur la plaque"""
         return int(round((x_coord + data["l_mm"]/2) / dx))
         
     def yToKnot(y_coord):
-        """Prend la coordonnée en y [mm] et donne une valeur approximative de noeud sur la plaque"""
+        """Prend la coordonnée en y [mm] et donne une valeur approximative 
+        de noeud sur la plaque"""
         return int(round(y_coord / dy))
     
     #Positions des différentes thermistances
@@ -215,7 +200,8 @@ def simulation(data):
     j_R, i_R = xToKnot(data["pert_x_mm"]), yToKnot(data["pert_y_mm"])
 
     def heatCalc(T, Tn):
-        """Le coeur de la simulation, la fonction qui fait le calcul discret de la fonction de diffusion"""
+        """Le coeur de la simulation, la fonction qui fait le 
+        calcul discret de la fonction de diffusion"""
 
         #Fonction de diffusion classique
         Tn[1:-1,1:-1] = T[1:-1,1:-1] + (
