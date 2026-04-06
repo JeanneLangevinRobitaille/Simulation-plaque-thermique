@@ -332,7 +332,7 @@ def start():
         data = {k: v.get() for k, v in params.items()}
         simulation(data)
 
-def close():
+def pause():
     global paused
     paused = not paused
     print("Paused" if paused else "Resumed")
@@ -393,8 +393,6 @@ def on_closing():
     save_results()
     root.destroy()
 
-
-
 #Boutons de l'interface
 #==========================
 frame_btn = ttk.Frame(root)
@@ -404,9 +402,9 @@ tk.Button(frame_btn, text="GO", width=15,
           bg="green", fg="white",
           command=start).pack(side="left", padx=10)
 
-tk.Button(frame_btn, text="CLOSE", width=15,
+tk.Button(frame_btn, text="Pause/Resume", width=15,
           bg="red", fg="white",
-          command=close).pack(side="left", padx=10)
+          command=pause).pack(side="left", padx=10)
 
 tk.Button(frame_btn, text='Save', width=15,bg="blue", fg="white",
           command=save).pack(side="left", padx=10)
