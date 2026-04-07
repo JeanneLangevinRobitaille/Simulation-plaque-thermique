@@ -52,3 +52,5 @@ Les paramètres sont les suivants :
   - Position : en mm, la position de la résistance perturbative
   - Résistance : en ohms, la valeur de résistance de la perturbation
   - Tension : en volts, la tension constante appliquée à la résistance perturbative
+
+  
