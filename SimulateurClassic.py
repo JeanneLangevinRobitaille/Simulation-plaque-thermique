@@ -285,7 +285,6 @@ def simulation(data):
         global paused, running
 
         if not running:
-            plt.close(fig)
             return
         
         if paused:
@@ -305,7 +304,8 @@ def simulation(data):
         for _ in range(steps_per_frame):
             if time_sim >= data["t_s"]:
                 running = False
-                break
+                print("Simulation finished")
+                return
             Tn = heatCalc(T, Tn, tec_coeff, res_coeff)
             T, Tn = Tn, T
             time_sim += dt
