@@ -226,12 +226,19 @@ def simulation(data):
     frame_count = 0
     temps, T1_vals, T2_vals, T3_vals = [], [], [], []
     
-    #Positionnement des fenetres
+    #Positionnement des fenêtres
     fig = plt.figure(figsize=(11,5))
     manager = plt.get_current_fig_manager()
     screen_width = manager.window.winfo_screenwidth()
     fig_width = 1100
     manager.window.wm_geometry(f"+{screen_width - fig_width}+50")
+
+    def on_close(event):
+        global running
+        print("Figure closed")
+        running = False
+
+    fig.canvas.mpl_connect('close_event', on_close)
 
     time_sim = 0.0
 
@@ -275,7 +282,7 @@ def simulation(data):
         """Fonction de mise à jour des graphiques et des listes d'informations"""
 
         nonlocal T, Tn, time_sim, surf, frame_count
-        global paused
+        global paused, running
 
         if not running:
             plt.close(fig)
@@ -287,7 +294,6 @@ def simulation(data):
         current_P = params["P_W"].get()
         current_V = params["tension_resistance"].get()
 
-        
         Q_entree = current_P / volume_entree
 
         tec_coeff = (Q_entree * dt) / (data["rho"] * data["Cp"])
@@ -298,6 +304,7 @@ def simulation(data):
 
         for _ in range(steps_per_frame):
             if time_sim >= data["t_s"]:
+                running = False
                 break
             Tn = heatCalc(T, Tn, tec_coeff, res_coeff)
             T, Tn = Tn, T
@@ -346,17 +353,27 @@ def simulation(data):
 #Contrôle des fonctions de l'interface
 #==========================
 def start():
-    global running
-    if not running:
-        running = True
-        print("Simulation started")
-        data = {k: v.get() for k, v in params.items()}
-        simulation(data)
+    global running, paused
+
+    if running:
+        print("Simulation already running")
+        return
+
+    running = True
+    paused = False
+
+    print("Simulation started")
+
+    data = {k: v.get() for k, v in params.items()}
+    simulation(data)
 
 def pause():
     global paused
     paused = not paused
     print("Paused" if paused else "Resumed")
+
+def close():
+    running=False
 
 def save():
     global running
