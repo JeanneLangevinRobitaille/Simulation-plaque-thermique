@@ -8,7 +8,7 @@ faut s'assurer que les bonnes librairies sont installée sur votre machine :
 - PyQt6
 - pyqtgraph
 
-Pour activer le simulateur, il faut exécuter le fichier *SimulateurUpgraded.py* soit 
+Pour activer le simulateur, il faut exécuter le fichier [SimulateurUpgrade.py](SimulateurUpgrade.py) soit 
 avec une commande du terminal ou en appuyant sur le bouton d'exécution de votre IDE.
 
 **2. L'interface**
