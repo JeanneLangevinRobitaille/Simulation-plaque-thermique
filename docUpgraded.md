@@ -38,7 +38,7 @@ Les paramètres sont les suivants :
 - Paramètres physiques
    - $$\alpha$$ : la diffusivité thermique en $$\text{mm}^2/s$$, la capacité au matériau à transferer la 
    chaleur
-   - $$\rho$$ : la densité du matériau en $$\text{kg}^2/\text{mm}^3$$
+   - $$\rho$$ : la densité du matériau en $$\text{kg}/\text{mm}^3$$
    - $$c_p$$ : la capacité calorifique massique du matériau en $$\text{J}/\text{mg}\cdot\text{K}$$, la 
    capacité au matériau à stocker la chaleur
    - $$h$$ : le coefficient de convection en $$\text{W}^2/\text{mm}^2\cdot\text{K}$$, l'intensité du 
