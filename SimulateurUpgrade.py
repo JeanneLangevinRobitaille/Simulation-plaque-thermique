@@ -200,14 +200,28 @@ class SimulationThread(QThread):
         matrice_T = np.full_like(grille_X, params["temperature_ambiante_C"], dtype=np.float32)
         matrice_T_suivante = matrice_T.copy()
 
-        def coord_x_vers_indice(coord_x): return int(round((coord_x + params["largeur_x_mm"]/2) / pas_x))
-        def coord_y_vers_indice(coord_y): return int(round(coord_y / pas_y))
+        def coord_x_vers_indice(coord_x):
+            indice = int(round((coord_x + params["largeur_x_mm"]/2) / pas_x))
+            return int(np.clip(indice, 0, resolution))
+
+        def coord_y_vers_indice(coord_y):
+            indice = int(round(coord_y / pas_y))
+            return int(np.clip(indice, 0, resolution))
+
+        def creer_zone_source(idx_y, idx_x):
+            y_debut = max(0, idx_y)
+            y_fin = min(resolution + 1, idx_y + 2)
+            x_debut = max(0, idx_x - 1)
+            x_fin = min(resolution + 1, idx_x + 1)
+            return np.s_[y_debut:y_fin, x_debut:x_fin]
 
         idx_x_T1, idx_y_T1 = coord_x_vers_indice(params["pos_x_capteur_1_mm"]), coord_y_vers_indice(params["pos_y_capteur_1_mm"])
         idx_x_T2, idx_y_T2 = coord_x_vers_indice(params["pos_x_capteur_2_mm"]), coord_y_vers_indice(params["pos_y_capteur_2_mm"])
         idx_x_T3, idx_y_T3 = coord_x_vers_indice(params["pos_x_capteur_3_mm"]), coord_y_vers_indice(params["pos_y_capteur_3_mm"])
         idx_x_tec, idx_y_tec = coord_x_vers_indice(params["pos_x_tec_mm"]), coord_y_vers_indice(params["pos_y_tec_mm"])
         idx_x_res, idx_y_res = coord_x_vers_indice(params["pos_x_resistance_mm"]), coord_y_vers_indice(params["pos_y_resistance_mm"])
+        zone_tec = creer_zone_source(idx_y_tec, idx_x_tec)
+        zone_res = creer_zone_source(idx_y_res, idx_x_res)
 
         frequence_pid = 10.0  
         periode_pid = 1.0 / frequence_pid
@@ -314,8 +328,8 @@ class SimulationThread(QThread):
                 )
                 matrice_T_suivante[1:-1,1:-1] -= cst_perte_convection * (matrice_T[1:-1,1:-1] - params["temperature_ambiante_C"])
                 
-                matrice_T_suivante[idx_y_tec:idx_y_tec+2, idx_x_tec-1:idx_x_tec+1] += ajout_temp_tec
-                matrice_T_suivante[idx_y_res:idx_y_res+2, idx_x_res-1:idx_x_res+1] += ajout_temp_resistance
+                matrice_T_suivante[zone_tec] += ajout_temp_tec
+                matrice_T_suivante[zone_res] += ajout_temp_resistance
 
                 matrice_T_suivante[0,:] = matrice_T_suivante[1,:]
                 matrice_T_suivante[-1,:] = matrice_T_suivante[-2,:]
@@ -375,6 +389,7 @@ class MainWindow(QMainWindow):
         self.donnees_entree = None
         self.donnees_resultats = None
         self.chemin_sauvegarde = ""
+        self.export_apres_arret = False
         
         self.historique_matrices_3D = []
         self.mode_direct_actif = True
@@ -478,6 +493,9 @@ class MainWindow(QMainWindow):
         self.champs_saisie["puissance_tec_W"].slider.valueChanged.connect(self.actualiser_controle_live)
         self.champs_saisie["consigne_C"].slider.valueChanged.connect(self.actualiser_controle_live)
         self.champs_saisie["tension_resistance_V"].slider.valueChanged.connect(self.actualiser_controle_live) # NOUVEAU: Écoute de la tension
+        self.champs_saisie["puissance_tec_W"].value_input.editingFinished.connect(self.actualiser_controle_live)
+        self.champs_saisie["consigne_C"].value_input.editingFinished.connect(self.actualiser_controle_live)
+        self.champs_saisie["tension_resistance_V"].value_input.editingFinished.connect(self.actualiser_controle_live)
         
         cadre_controles = QFrame()
         cadre_controles.setObjectName("Section")
@@ -699,10 +717,15 @@ class MainWindow(QMainWindow):
             self.chemin_sauvegarde = chemin_fichier
 
     def lancer_simulation(self):
+        if hasattr(self, 'thread_simulation') and self.thread_simulation.isRunning():
+            QMessageBox.information(self, "Simulation en cours", "Une simulation est déjà en cours d'exécution.")
+            return
+
         params = self.recuperer_parametres_interface()
         if not params: return
 
-        self.params_actuels = params 
+        self.params_actuels = params
+        self.export_apres_arret = False
         
         resolution = int(params["resolution_grille"])
         self.nx = resolution + 1  
@@ -743,6 +766,7 @@ class MainWindow(QMainWindow):
         self.lecture_en_cours = False
         
         # Reset des boutons UI
+        self.bouton_demarrer.setEnabled(False)
         self.bouton_pause.setEnabled(True)
         self.bouton_pause.setText("PAUSE")
         self.bouton_pause.setStyleSheet("")
@@ -801,10 +825,10 @@ class MainWindow(QMainWindow):
 
     def stopper_simulation(self):
         if hasattr(self, 'thread_simulation') and self.thread_simulation.isRunning():
+            self.export_apres_arret = True
             self.thread_simulation.stop()
             self.bouton_pause.setEnabled(False)
             self.bouton_quicksave.setEnabled(False)
-            self.exporter_resultats_json()
             
     def actualiser_controle_live(self):
         if hasattr(self, 'thread_simulation') and self.thread_simulation.isRunning():
@@ -946,6 +970,7 @@ class MainWindow(QMainWindow):
         self.donnees_entree = parametres
         self.donnees_resultats = resultats
         self.mode_direct_actif = False
+        self.bouton_demarrer.setEnabled(True)
         self.bouton_pause.setEnabled(False)
         self.bouton_quicksave.setEnabled(False)
         
@@ -953,8 +978,9 @@ class MainWindow(QMainWindow):
             self.curseur_temps_2d.setPos(self.donnees_temps[-1])
             self.curseur_temps_2d.show()
             
-        if self.chemin_sauvegarde:
+        if self.chemin_sauvegarde or self.export_apres_arret:
             self.exporter_resultats_json()
+        self.export_apres_arret = False
 
     def exporter_resultats_json(self):
         if self.donnees_resultats is None or self.donnees_entree is None: return

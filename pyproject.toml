@@ -9,6 +9,7 @@ dependencies = [
     "numba>=0.61.0",
     "numpy>=2.2.0",
     "pandas>=2.2.0",
+    "pyopengl>=3.1.10",
     "pyqt6>=6.9.0",
     "pyqtgraph>=0.13.0",
     "scipy>=1.15.0",
