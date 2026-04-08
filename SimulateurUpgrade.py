@@ -1,5 +1,3 @@
-#Fait par : Patrick Lamontagne
-
 import sys
 import json
 import numpy as np
@@ -107,13 +105,13 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
 QGroupBox { 
     border: 2px solid #334155; 
     border-radius: 8px; 
-    margin-top: 18px; 
+    margin-top: 18px;
     padding-top: 28px; 
     background-color: rgba(30, 41, 59, 0.4); 
 }
 QGroupBox::title { 
     subcontrol-origin: margin; 
-    subcontrol-position: top center; 
+    subcontrol-position: top center;
     padding: 8px 18px; 
     background-color: #0EA5E9; 
     color: #FFFFFF; 
@@ -140,21 +138,34 @@ QSplitter::handle:hover { background-color: rgba(14, 165, 233, 0.2); }
 """
 
 # ==============================================================================
-# THREAD DE SIMULATION
+# THREAD DE SIMULATION (AVEC LE PID INTÉGRÉ)
 # ==============================================================================
 class SimulationThread(QThread):
     progress_signal = pyqtSignal(int)
     update_signal = pyqtSignal(float, np.ndarray, float, float, float)
     finished_signal = pyqtSignal(dict, dict)
 
-    def __init__(self, data):
+    def __init__(self, data, mode_pid_actif):
         super().__init__()
         self.parametres = data
         self.en_cours_d_execution = True
+        
+        # Variables de contrôle en direct
+        self.mode_pid_actif = mode_pid_actif
+        self.puissance_manuelle_voulue = float(data["puissance_tec_W"])
+        self.consigne_voulue = float(data["consigne_C"])
+        self.puissance_dynamique = 0.0
+
+    # Fonction appelée par l'interface quand on bouge un slider ou qu'on change de mode
+    def modifier_parametres_controle(self, mode_pid_actif, nouvelle_puissance, nouvelle_consigne):
+        self.mode_pid_actif = mode_pid_actif
+        self.puissance_manuelle_voulue = float(nouvelle_puissance)
+        self.consigne_voulue = float(nouvelle_consigne)
 
     def run(self):
         params = self.parametres
         resolution = int(params["resolution_grille"])
+     
         vecteur_x = np.linspace(-params["largeur_x_mm"]/2, params["largeur_x_mm"]/2, resolution + 1)
         vecteur_y = np.linspace(0, params["longueur_y_mm"], resolution + 1)
         grille_X, grille_Y = np.meshgrid(vecteur_x, vecteur_y)
@@ -167,13 +178,12 @@ class SimulationThread(QThread):
         pas_temps = min(pas_temps, limite_stabilite)
 
         volume_module_tec = (2 * pas_x) * (2 * pas_y) * params["epaisseur_mm"]
-        puissance_volumique_tec = params["puissance_tec_W"] / volume_module_tec
 
         cst_diffusion_x = params["diffusivite_alpha"] * pas_temps / pas_x**2
         cst_diffusion_y = params["diffusivite_alpha"] * pas_temps / pas_y**2
         
         cst_perte_convection = params["coeff_convection_h"] * pas_temps / (params["masse_volumique_rho"] * params["chaleur_massique_cp"] * params["epaisseur_mm"])
-        ajout_temp_tec = (puissance_volumique_tec * pas_temps) / (params["masse_volumique_rho"] * params["chaleur_massique_cp"])
+       
         ajout_temp_resistance = (params["tension_resistance_V"]**2 * pas_temps) / (params["valeur_resistance_ohm"] * params["masse_volumique_rho"] * params["chaleur_massique_cp"] * params["epaisseur_mm"] * pas_x * pas_y)
 
         matrice_T = np.full_like(grille_X, params["temperature_ambiante_C"], dtype=np.float32)
@@ -188,20 +198,96 @@ class SimulationThread(QThread):
         idx_x_tec, idx_y_tec = coord_x_vers_indice(params["pos_x_tec_mm"]), coord_y_vers_indice(params["pos_y_tec_mm"])
         idx_x_res, idx_y_res = coord_x_vers_indice(params["pos_x_resistance_mm"]), coord_y_vers_indice(params["pos_y_resistance_mm"])
 
+        # ==============================================================================
+        # INITIALISATION DU RÉGULATEUR ARDUINO (MODE 2 : TUSTIN AW)
+        # ==============================================================================
+        frequence_pid = 10.0  # L'Arduino tourne à 10 Hz
+        periode_pid = 1.0 / frequence_pid
+        prochain_temps_pid = 0.0
+        limit_pwm_percent = 100.0
+        
+        # Coefficients de ton interface Arduino
+        aw_kc = 5.0
+        pd_b0 = 38.142857
+        pd_b1 = -38.047619
+        pd_a1 = -0.904762
+        int_alpha = 0.998751
+
+        # Mémoires du PID
+        e_prev1 = 0.0
+        uD_prev = 0.0
+        uI_prev = 0.0
+        u_prev = 0.0
+
+        # Lookup table pour U_op
+        table_consignes = [10.20, 12.15, 12.70, 16.20, 30.70, 36.38, 41.30, 54.10]
+        table_pwm = [-30.0, -20.0, -15.0, -10.0, 10.0, 15.0, 20.0, 30.0]
+
+        def obtenir_uop(target):
+            if target <= table_consignes[0]: return table_pwm[0]
+            if target >= table_consignes[-1]: return table_pwm[-1]
+            for i in range(len(table_consignes) - 1):
+                if table_consignes[i] <= target <= table_consignes[i + 1]:
+                    pct = (target - table_consignes[i]) / (table_consignes[i+1] - table_consignes[i])
+                    return table_pwm[i] + pct * (table_pwm[i+1] - table_pwm[i])
+            return 0.0
+        # ==============================================================================
+
         calculs_par_actualisation = 150
         temps_ecoule = 0.0
         compteur_images = 0
         
-        # === INJECTION DU TEMPS T=0 ===
         historique_temps = [0.0]
         historique_T1 = [float(matrice_T[idx_y_T1, idx_x_T1])]
         historique_T2 = [float(matrice_T[idx_y_T2, idx_x_T2])]
         historique_T3 = [float(matrice_T[idx_y_T3, idx_x_T3])]
 
-        # Envoi de la toute première frame pour que l'interface s'initialise visuellement à 0s
         self.update_signal.emit(0.0, matrice_T.copy(), historique_T1[0], historique_T2[0], historique_T3[0])
 
         while self.en_cours_d_execution and temps_ecoule < params["temps_total_s"]:
+            
+            # === DÉCISION DE CONTRÔLE (Manuel ou PID) ===
+            if self.mode_pid_actif:
+                # Émulation du tick Arduino à 10 Hz
+                if temps_ecoule >= prochain_temps_pid:
+                    t3_actuel = matrice_T[idx_y_T3, idx_x_T3] 
+                    e_k = self.consigne_voulue - t3_actuel
+                    aw_uop = obtenir_uop(self.consigne_voulue)
+                    
+                    # Mathématiques du PID Tustin
+                    uD = (aw_kc * pd_b0 * e_k) + (aw_kc * pd_b1 * e_prev1) - (pd_a1 * uD_prev)
+                    uI = (1.0 - int_alpha) * (u_prev - aw_uop) + (int_alpha * uI_prev)
+                    v = uD + aw_uop + uI
+                    
+                    u_sat = np.clip(v, -limit_pwm_percent, limit_pwm_percent)
+                    
+                    # MAJ mémoires
+                    uD_prev = uD
+                    uI_prev = uI
+                    e_prev1 = e_k
+                    u_prev = u_sat
+                    
+                    # Conversion PWM en Watts
+                    pwm_percent_abs = abs(u_sat)
+                    puissance_w = (((1.703277e-05 * pwm_percent_abs + 9.947817e-04) * pwm_percent_abs) + 1.406312e-01) * pwm_percent_abs + 1.734031e-02
+                    
+                    if u_sat < 0:
+                        self.puissance_dynamique = -puissance_w # Refroidit
+                    elif u_sat > 0:
+                        self.puissance_dynamique = puissance_w  # Chauffe
+                    else:
+                        self.puissance_dynamique = 0.0
+                        
+                    prochain_temps_pid += periode_pid
+            else:
+                # Mode Manuel : On force simplement la puissance
+                self.puissance_dynamique = self.puissance_manuelle_voulue
+
+
+            # === APPLICATION DE LA PUISSANCE AU MAILLAGE ===
+            puissance_volumique_tec = self.puissance_dynamique / volume_module_tec
+            ajout_temp_tec = (puissance_volumique_tec * pas_temps) / (params["masse_volumique_rho"] * params["chaleur_massique_cp"])
+
             for _ in range(calculs_par_actualisation):
                 if temps_ecoule >= params["temps_total_s"]: break
                 
@@ -260,13 +346,11 @@ class MainWindow(QMainWindow):
         if dialog.clickedButton() == btn_plein:
             self.showMaximized()
         else:
-            # 80% de l'écran
             ecran = QApplication.primaryScreen()
             geometrie_ecran = ecran.geometry()
             largeur_80 = int(geometrie_ecran.width() * 0.8)
             hauteur_80 = int(geometrie_ecran.height() * 0.8)
             self.resize(largeur_80, hauteur_80)
-            # Centrer la fenêtre
             x = (geometrie_ecran.width() - largeur_80) // 2
             y = (geometrie_ecran.height() - hauteur_80) // 2
             self.move(x, y)
@@ -279,7 +363,6 @@ class MainWindow(QMainWindow):
         self.mode_direct_actif = True
         self.temperature_ambiante_ref = 20.0
         self.temperature_max_globale = 21.0
-        
         self.exageration_z = 5.0 
 
         positions_couleurs = np.linspace(0.0, 1.0, 5)
@@ -287,7 +370,7 @@ class MainWindow(QMainWindow):
             [68, 1, 84, 255],     
             [49, 104, 142, 255],  
             [200, 70, 150, 255],  
-            [255, 100, 100, 255],  
+            [255, 100, 100, 255], 
             [255, 0, 0, 255]   
         ], dtype=np.ubyte)
         self.palette_couleurs = pg.ColorMap(positions_couleurs, valeurs_rgb)
@@ -314,8 +397,9 @@ class MainWindow(QMainWindow):
         self.champs_saisie = {}
         
         definition_parametres = {
+            "Contrôle Thermique": {"puissance_tec_W": 1.0, "consigne_C": 35.0},
             "Paramètres de la plaque": {"longueur_y_mm": 117.5, "largeur_x_mm": 61.5, "epaisseur_mm": 1.7},
-            "Paramètres de la simulation": {"puissance_tec_W": 1.0, "temps_total_s": 150.0, "resolution_grille": 50.0, "temperature_ambiante_C": 20.0, "intervalle_affichage": 1.0},
+            "Paramètres de la simulation": {"temps_total_s": 150.0, "resolution_grille": 50.0, "temperature_ambiante_C": 20.0, "intervalle_affichage": 1.0},
             "Paramètres physiques": {"diffusivite_alpha": 97.0, "masse_volumique_rho": 2.7e-3, "chaleur_massique_cp": 0.9, "coeff_convection_h": 5.0e-5},
             "Coordonnées d'intérêt": {
                 "pos_x_tec_mm": 0.0, "pos_y_tec_mm": 5.0,
@@ -343,8 +427,9 @@ class MainWindow(QMainWindow):
                 label_param = QLabel(texte_label)
                 
                 plages = {
+                    "puissance_tec_W": (-10, 10), "consigne_C": (-20, 100),
                     "longueur_y_mm": (50, 200), "largeur_x_mm": (30, 150),
-                    "epaisseur_mm": (0.1, 5), "puissance_tec_W": (0, 10),
+                    "epaisseur_mm": (0.1, 5), 
                     "temps_total_s": (10, 300), "resolution_grille": (10, 100),
                     "temperature_ambiante_C": (-20, 50), "intervalle_affichage": (1, 50),
                     "diffusivite_alpha": (50, 150), "masse_volumique_rho": (0.001, 0.01),
@@ -358,7 +443,7 @@ class MainWindow(QMainWindow):
                 }
                 
                 min_v, max_v = plages.get(cle_variable, (-1000, 1000))
-                decimales = 3 if "e" in str(valeur_defaut).lower() else (1 if cle_variable.endswith("_mm") or "capteur" in cle_variable or "tec" in cle_variable or "resistance" in cle_variable else 2)
+                decimales = 3 if "e" in str(valeur_defaut).lower() else (1 if cle_variable.endswith("_mm") or "capteur" in cle_variable or "tec" in cle_variable or "resistance" in cle_variable or "consigne" in cle_variable else 2)
                 
                 slider_widget = SliderWithValue(min_v, max_v, float(valeur_defaut), decimals=decimales)
                 self.champs_saisie[cle_variable] = slider_widget
@@ -373,10 +458,31 @@ class MainWindow(QMainWindow):
         zone_defilement.setWidget(contenu_defilement)
         layout_gauche.addWidget(zone_defilement)
 
+        # Connexion des sliders de contrôle en direct
+        self.champs_saisie["puissance_tec_W"].slider.valueChanged.connect(self.actualiser_controle_live)
+        self.champs_saisie["puissance_tec_W"].value_input.editingFinished.connect(self.actualiser_controle_live)
+        self.champs_saisie["consigne_C"].slider.valueChanged.connect(self.actualiser_controle_live)
+        self.champs_saisie["consigne_C"].value_input.editingFinished.connect(self.actualiser_controle_live)
+
         cadre_controles = QFrame()
         cadre_controles.setObjectName("Section")
         layout_controles = QVBoxLayout(cadre_controles)
         
+        # --- NOUVEAU: Le Menu Déroulant du Mode ---
+        layout_mode = QHBoxLayout()
+        label_mode = QLabel("Mode de fonctionnement :")
+        label_mode.setStyleSheet("font-weight: bold; color: #38BDF8;")
+        self.combo_mode_sys = QComboBox()
+        self.combo_mode_sys.addItems(["PID Automatique (Consigne)", "Manuel (Puissance Brute)"])
+        self.combo_mode_sys.setStyleSheet("""
+            QComboBox { background-color: #1E293B; color: #E2E8F0; border: 1px solid #334155; padding: 5px; border-radius: 4px;}
+        """)
+        self.combo_mode_sys.currentIndexChanged.connect(self.actualiser_controle_live)
+        layout_mode.addWidget(label_mode)
+        layout_mode.addWidget(self.combo_mode_sys)
+        layout_controles.addLayout(layout_mode)
+        # ------------------------------------------
+
         ligne_boutons_fichiers = QHBoxLayout()
         self.bouton_importer = QPushButton("Importer JSON")
         self.bouton_importer.clicked.connect(self.importer_parametres_json)
@@ -410,12 +516,10 @@ class MainWindow(QMainWindow):
         layout_droit.setContentsMargins(0, 0, 0, 0)
         separateur_graphiques = QSplitter(Qt.Orientation.Vertical)
         
-        # --- CONTAINER 3D + LÉGENDE COLORBAR ---
         container_3d = QWidget()
         layout_3d_h = QHBoxLayout(container_3d)
         layout_3d_h.setContentsMargins(0, 0, 0, 0)
 
-        # 3D View
         self.vue_3d = gl.GLViewWidget()
         self.vue_3d.setCameraPosition(distance=150, elevation=45, azimuth=45)
         self.grille_3d = gl.GLGridItem()
@@ -423,11 +527,9 @@ class MainWindow(QMainWindow):
         self.vue_3d.addItem(self.grille_3d)
         
         self.surface_thermique = gl.GLSurfacePlotItem(computeNormals=True, smooth=True, shader='shaded')
-        # Initialisation avec une matrice de test pour éviter le crash OpenGL
         test_data = np.ones((20, 20), dtype=np.float32) * 20.0
         test_x = np.linspace(0, 100, 20)
         test_y = np.linspace(0, 100, 20)
-        # Utilise le gradient Viridis pour les couleurs initiales (plus lumineux)
         test_norm = np.linspace(0, 1, 20)
         test_colors = np.zeros((20, 20, 4), dtype=np.float32)
         for i in range(20):
@@ -441,7 +543,6 @@ class MainWindow(QMainWindow):
 
         layout_3d_h.addWidget(self.vue_3d, stretch=1)
 
-        # === LÉGENDE COLORBAR ROBUSTE ===
         container_legende = QWidget()
         container_legende.setFixedWidth(80) 
         layout_legende = QVBoxLayout(container_legende)
@@ -450,7 +551,6 @@ class MainWindow(QMainWindow):
         self.lbl_max_temp = QLabel("100.0 °C")
         self.lbl_max_temp.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
         
-        # QFrame avec dégradé Viridis - gradient linéaire CSS pur
         self.barre_couleur = QFrame()
         self.barre_couleur.setFixedWidth(18)
         self.barre_couleur.setMinimumHeight(120) 
@@ -477,7 +577,6 @@ class MainWindow(QMainWindow):
         
         layout_3d_h.addWidget(container_legende)
 
-        # --- 2D ---
         pg.setConfigOptions(antialias=True, background='#0F172A', foreground='#E2E8F0')
         self.graphique_2d = pg.PlotWidget(title="En Attente de Lancement...")
         self.graphique_2d.addLegend()
@@ -500,15 +599,12 @@ class MainWindow(QMainWindow):
         separateur_graphiques.setSizes([600, 350])
         layout_droit.addWidget(separateur_graphiques)
 
-        # Timeline Control
         layout_timeline = QHBoxLayout()
         layout_timeline.setContentsMargins(15, 10, 15, 15)
         
-        # Label Timeline
         label_timeline = QLabel("Historique Temporel :")
         label_timeline.setStyleSheet("font-weight: bold; color: #38BDF8; font-size: 14px;")
         
-        # Bouton Play/Pause
         self.btn_play_pause = QPushButton("▶")
         self.btn_play_pause.setMaximumWidth(40)
         self.btn_play_pause.setEnabled(False)
@@ -521,12 +617,10 @@ class MainWindow(QMainWindow):
         self.btn_play_pause.clicked.connect(self.toggle_lecture_temps)
         self.lecture_en_cours = False
         
-        # Slider Timeline
         self.slider_timeline = QSlider(Qt.Orientation.Horizontal)
         self.slider_timeline.setEnabled(False)
         self.slider_timeline.valueChanged.connect(self.naviguer_dans_historique)
         
-        # ComboBox Vitesse
         self.combo_vitesse = QComboBox()
         self.combo_vitesse.setMaximumWidth(80)
         self.combo_vitesse.addItems(["0.5x", "1.0x", "2.0x", "5x"])
@@ -541,7 +635,6 @@ class MainWindow(QMainWindow):
         self.vitesse_lecture = 1.0
         self.combo_vitesse.currentTextChanged.connect(self.modifier_vitesse_lecture)
         
-        # Label Vitesse
         label_vitesse = QLabel("Vitesse:")
         label_vitesse.setStyleSheet("color: #94A3B8; font-size: 12px;")
         
@@ -566,7 +659,7 @@ class MainWindow(QMainWindow):
                 with open(chemin_fichier, 'r') as fichier:
                     donnees = json.load(fichier)
                     parametres = donnees.get("parametres", donnees)
-                    for cle, valeur in parametres.items():
+                for cle, valeur in parametres.items():
                         if cle in self.champs_saisie:
                             self.champs_saisie[cle].setValue(float(valeur))
             except Exception as erreur:
@@ -618,7 +711,6 @@ class MainWindow(QMainWindow):
         self.slider_timeline.setEnabled(False)
         self.slider_timeline.blockSignals(False)
         
-        # Réinitialiser les contrôles de lecture
         self.btn_play_pause.setEnabled(False)
         self.btn_play_pause.setText("▶")
         self.combo_vitesse.setEnabled(False)
@@ -632,11 +724,13 @@ class MainWindow(QMainWindow):
         self.grille_3d.scale(10, 10, 10)
         self.grille_3d.translate(0, centre_physique_y, 0)
 
-        # Initialiser la surface 3D à t=0 avec la température ambiante
         matrice_initiale = np.full((self.ny, self.nx), params["temperature_ambiante_C"], dtype=np.float32)
         self.dessiner_rendu_3d(matrice_initiale, 0.0, params["temperature_ambiante_C"], params["temperature_ambiante_C"], params["temperature_ambiante_C"])
 
-        self.thread_simulation = SimulationThread(params)
+        # Est-ce qu'on commence en mode PID (Index 0) ou Manuel (Index 1) ?
+        mode_pid = (self.combo_mode_sys.currentIndex() == 0)
+
+        self.thread_simulation = SimulationThread(params, mode_pid)
         self.thread_simulation.update_signal.connect(self.actualiser_graphiques)
         self.thread_simulation.progress_signal.connect(self.barre_progression.setValue)
         self.thread_simulation.finished_signal.connect(self.terminer_simulation)
@@ -646,6 +740,14 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'thread_simulation') and self.thread_simulation.isRunning():
             self.thread_simulation.stop()
             self.exporter_resultats_json()
+            
+    # Fonction pour envoyer les contrôles au thread en direct
+    def actualiser_controle_live(self):
+        if hasattr(self, 'thread_simulation') and self.thread_simulation.isRunning():
+            mode_pid = (self.combo_mode_sys.currentIndex() == 0)
+            puiss = self.champs_saisie["puissance_tec_W"].value()
+            cons = self.champs_saisie["consigne_C"].value()
+            self.thread_simulation.modifier_parametres_controle(mode_pid, puiss, cons)
 
     def actualiser_graphiques(self, temps_sim, matrice_temperatures_3d, temp_T1, temp_T2, temp_T3):
         max_actuel = matrice_temperatures_3d.max()
@@ -688,10 +790,16 @@ class MainWindow(QMainWindow):
         t3 = self.donnees_y_t3[index]
         temps_a_ce_moment = self.donnees_temps[index]
         
+        self.curseur_temps_2d.setPos(temps_a_ce_moment)
+        
+        if self.mode_direct_actif:
+            self.curseur_temps_2d.hide()
+        else:
+            self.curseur_temps_2d.show()
+        
         self.dessiner_rendu_3d(matrice_historique, temps_a_ce_moment, t1, t2, t3)
     
     def toggle_lecture_temps(self):
-        """Active ou désactive la lecture automatique de la timeline"""
         self.lecture_en_cours = not self.lecture_en_cours
         if self.lecture_en_cours:
             self.btn_play_pause.setText("⏸")
@@ -700,7 +808,6 @@ class MainWindow(QMainWindow):
             self.btn_play_pause.setText("▶")
     
     def lecture_temporelle(self):
-        """Avance automatiquement dans la timeline selon la vitesse"""
         if not self.lecture_en_cours or not self.historique_matrices_3D:
             self.btn_play_pause.setText("▶")
             return
@@ -708,34 +815,23 @@ class MainWindow(QMainWindow):
         index_courant = self.slider_timeline.value()
         index_max = self.slider_timeline.maximum()
         
-        # Avancer toujours de 1 frame
         if index_courant < index_max:
             self.slider_timeline.setValue(index_courant + 1)
         else:
-            # Réinitialiser au début
             self.slider_timeline.setValue(0)
         
-        # Relancer après un délai adapté à la vitesse
         delai = int(100 / self.vitesse_lecture)
         QTimer.singleShot(delai, self.lecture_temporelle)
     
     def modifier_vitesse_lecture(self, text):
-        """Modifie la vitesse de lecture de la timeline"""
         vitesses = {"0.5x": 0.5, "1.0x": 1.0, "2.0x": 2.0, "5x": 5.0}
         self.vitesse_lecture = vitesses.get(text, 1.0)
-        
-        self.curseur_temps_2d.setPos(temps_a_ce_moment)
-        if self.mode_direct_actif:
-            self.curseur_temps_2d.hide()
-        else:
-            self.curseur_temps_2d.show()
 
     def dessiner_rendu_3d(self, matrice_temperatures_3d, temps_sim, t1, t2, t3):
         temp_min = self.temperature_ambiante_ref
         temp_max = self.temperature_max_globale
         if temp_max <= temp_min: temp_max = temp_min + 1.0
         
-        # Mise à jour ultra-rapide des textes UNIQUEMENT ! 0% de lag
         self.lbl_min_temp.setText(f"{temp_min:.1f} °C")
         self.lbl_max_temp.setText(f"{temp_max:.1f} °C")
         
@@ -798,7 +894,7 @@ class MainWindow(QMainWindow):
         if not self.chemin_sauvegarde:
             self.choisir_chemin_sauvegarde()
             if not self.chemin_sauvegarde: return
-            
+             
         contenu_export = {"parametres": self.donnees_entree, "resultats": self.donnees_resultats}
         with open(self.chemin_sauvegarde, "w") as fichier:
             json.dump(contenu_export, fichier, indent=4, default=lambda x: x.item() if isinstance(x, np.generic) else x)
