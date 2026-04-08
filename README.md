@@ -11,3 +11,36 @@ Celle-ci et la version simple du simulateur utilisent les mêmes calculs, mais l
 Pour la documentation de la version courante du simulateur : [click](docUpgraded.md)
 
 Pour la documentation de la version simple du simulateur : [click](docClassic.md)
+
+## Gestion des librairies avec uv
+
+Ce projet utilise maintenant `uv` pour garder les librairies synchronisees et versionnees dans Git.
+
+### Installation de uv (Windows PowerShell)
+
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
+```
+
+Si `uv` n'est pas reconnu tout de suite, ferme et rouvre ton terminal.
+
+### Installation des dependances du projet
+
+Dans la racine du repo:
+
+```powershell
+uv sync
+```
+
+Cette commande cree `.venv/` localement (ignoree par Git) et installe les versions verrouillees dans `uv.lock`.
+
+### Ajouter une nouvelle librairie
+
+```powershell
+uv add nom-librairie
+```
+
+Ensuite commit ces fichiers:
+
+- `pyproject.toml`
+- `uv.lock`
