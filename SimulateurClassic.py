@@ -13,8 +13,12 @@ import json
 root = tk.Tk()
 root.title("Simulateur de plaque asservie en température")
 root.geometry('1400x950')
+
+#Drapeaux de la simulation
+#==========================
 running = False
 paused = False
+reset_simulation = False
 
 #Variables de sortie
 #==========================
@@ -86,7 +90,6 @@ left_frame.grid(row=0, column=0, sticky="nw")
 #Section pour les fichiers JSON
 frame_geo = ttk.Frame(left_frame)
 frame_geo.pack(anchor="w")
-field(frame_geo, 0, "Ficher de sauvegarde", params["output_filepath"], '')
 
 #Section paramètres de la plaque
 section_title(left_frame, "Paramètres de la plaque")
@@ -235,8 +238,23 @@ def simulation(data):
 
     def on_close(event):
         global running
-        print("Figure closed")
+        print("Figure fermée")
         running = False
+    
+    def reset_state():
+        nonlocal T, Tn, time_sim, temps, T1_vals, T2_vals, T3_vals
+
+        T[:] = data["Tamb_C"]
+        Tn[:] = T
+
+        time_sim = 0.0
+
+        temps.clear()
+        T1_vals.clear()
+        T2_vals.clear()
+        T3_vals.clear()
+
+        print("Simulation recommancée")
 
     fig.canvas.mpl_connect('close_event', on_close)
 
@@ -282,14 +300,16 @@ def simulation(data):
         """Fonction de mise à jour des graphiques et des listes d'informations"""
 
         nonlocal T, Tn, time_sim, surf, frame_count
-        global paused, running
+        global paused, running, reset_simulation
 
         if not running:
             return
-        
         if paused:
             return
-        
+        if reset_simulation:
+            reset_state()
+            reset_simulation = False
+
         current_P = params["P_W"].get()
         current_V = params["tension_resistance"].get()
 
@@ -298,13 +318,13 @@ def simulation(data):
         tec_coeff = (Q_entree * dt) / (data["rho"] * data["Cp"])
 
         res_coeff = (current_V**2 * dt) / (
-            data["val_resistance"] * data["rho"] * data["Cp"] * data["e_mm"] * dx * dy
-        )
+            data["val_resistance"] * data["rho"] * 
+            data["Cp"] * data["e_mm"] * dx * dy)
 
         for _ in range(steps_per_frame):
             if time_sim >= data["t_s"]:
                 running = False
-                print("Simulation finished")
+                print("Simulation finie")
                 return
             Tn = heatCalc(T, Tn, tec_coeff, res_coeff)
             T, Tn = Tn, T
@@ -342,7 +362,7 @@ def simulation(data):
             p3._offsets3d = ([X[i3,j3]], [Y[i3,j3]], [T[i3,j3]])
             ligne_temperature.set_title(f"t = {time_sim:.2f} s")
 
-    #Animation des choses, prend update() en entrée
+    #Animation des graphiques, prend update() en entrée
     ani = FuncAnimation(fig, update, interval=40)
     
     data_out = data.copy()
@@ -353,38 +373,62 @@ def simulation(data):
 #Contrôle des fonctions de l'interface
 #==========================
 def start():
-    global running, paused
+    global running, paused, reset_simulation
 
-    if running:
-        print("Simulation already running")
-        return
-
-    running = True
-    paused = False
-
-    print("Simulation started")
-
-    data = {k: v.get() for k, v in params.items()}
-    simulation(data)
+    if not running:
+        print("Début de simulation")
+        running = True
+        paused = False
+        data = {k: v.get() for k, v in params.items()}
+        simulation(data)
+    else:
+        print("Simulation recommancée")
+        reset_simulation = True
 
 def pause():
     global paused
     paused = not paused
-    print("Paused" if paused else "Resumed")
-
-def close():
-    running=False
+    print("Pause" if paused else "Continuer")
 
 def save():
-    global running
-    print("Adding filepath for Save")
+    global results_out, data_out
+
+    print("Sauvegarde des résultats")
+
     filepath = filedialog.asksaveasfilename(
         defaultextension=".json",
         filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
         title="Choisir où sauvegarder les résultats"
     )
-    if filepath:
-        params["output_filepath"].set(filepath)
+
+    if not filepath:
+        print("Sauvegarde annulé")
+        return
+
+    if results_out is None or data_out is None:
+        print("Acune données à sauvegarder")
+        return
+
+    def convert(o):
+        if isinstance(o, np.generic):
+            return o.item()
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        return o
+
+    output = {
+        "parametres": data_out,
+        "resultats": {
+            "temps": list(results_out["temps"]),
+            "T1": list(results_out["T1"]),
+            "T2": list(results_out["T2"]),
+            "T3": list(results_out["T3"]),
+        }
+    }
+
+    with open(filepath, "w") as f:
+        json.dump(output, f, indent=4, default=convert)
+    print(f"Saved to {filepath}")
 
 def save_results():
     if results_out is None or data_out is None:
@@ -408,7 +452,7 @@ def save_results():
     print(f"Résultats sauvegardés dans {filepath}")
     
 def input():
-    print('Adding filepath for Input')
+    print('Ajout de fichier par Input')
     filepath = filedialog.askopenfilename(
         filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
         title="Choisir un fichier de paramètres")
@@ -427,8 +471,11 @@ def input():
 
 def on_closing():
     global running
-    save_results()
+
+    print("Fermeture de l'application")
     running = False
+    plt.close('all')
+    save_results()
     root.destroy()
 
 #Boutons de l'interface
@@ -436,7 +483,7 @@ def on_closing():
 frame_btn = ttk.Frame(root)
 frame_btn.pack(pady=45)
 
-tk.Button(frame_btn, text="GO", width=15,
+tk.Button(frame_btn, text="Simulate", width=15,
           bg="green", fg="white",
           command=start).pack(side="left", padx=10)
 
@@ -444,13 +491,13 @@ tk.Button(frame_btn, text="Pause/Resume", width=15,
           bg="red", fg="white",
           command=pause).pack(side="left", padx=10)
 
-tk.Button(frame_btn, text='Save', width=15,bg="blue", fg="white",
+tk.Button(frame_btn, text='Save', width=15, bg="blue", fg="white",
           command=save).pack(side="left", padx=10)
 
-tk.Button(frame_btn, text='Input', width=15,bg="violet", fg="white",
+tk.Button(frame_btn, text='Input', width=15, bg="violet", fg="white",
           command=input).pack(side="left", padx=10)
 
-tk.Button(frame_btn, text='Exit', width=15,bg="orange", fg="white",
+tk.Button(frame_btn, text='Exit', width=15, bg="orange", fg="white",
           command=on_closing).pack(side="left", padx=10)
 
 root.mainloop()
