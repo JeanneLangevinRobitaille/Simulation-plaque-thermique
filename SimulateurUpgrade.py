@@ -131,6 +131,11 @@ QPushButton:hover { background-color: #475569; border: 1px solid #64748B; }
 #btn_go:hover { background-color: #34D399; }
 #btn_close { background-color: #EF4444; border: 1px solid #DC2626; color: white; font-size: 12px; font-weight: bold; padding: 9px 14px; }
 #btn_close:hover { background-color: #F87171; }
+#btn_pause { background-color: #F59E0B; border: 1px solid #D97706; color: white; font-size: 12px; font-weight: bold; padding: 9px 14px; }
+#btn_pause:hover { background-color: #FBBF24; }
+#btn_quicksave { background-color: #8B5CF6; border: 1px solid #7C3AED; color: white; font-size: 12px; font-weight: bold; padding: 9px 14px; }
+#btn_quicksave:hover { background-color: #A78BFA; }
+#btn_quicksave:disabled { background-color: #4C1D95; color: #9CA3AF; border: 1px solid #312E81;}
 QProgressBar { border: 1px solid #334155; border-radius: 4px; background-color: #1E293B; text-align: center; color: white; font-weight: bold; font-size: 10px; min-height: 18px; }
 QProgressBar::chunk { background-color: #10B981; border-radius: 3px; }
 QSplitter::handle { background-color: transparent; }
@@ -138,7 +143,7 @@ QSplitter::handle:hover { background-color: rgba(14, 165, 233, 0.2); }
 """
 
 # ==============================================================================
-# THREAD DE SIMULATION (AVEC LE PID INTÉGRÉ)
+# THREAD DE SIMULATION
 # ==============================================================================
 class SimulationThread(QThread):
     progress_signal = pyqtSignal(int)
@@ -149,18 +154,26 @@ class SimulationThread(QThread):
         super().__init__()
         self.parametres = data
         self.en_cours_d_execution = True
+        self.en_pause = False
         
-        # Variables de contrôle en direct
         self.mode_pid_actif = mode_pid_actif
         self.puissance_manuelle_voulue = float(data["puissance_tec_W"])
         self.consigne_voulue = float(data["consigne_C"])
+        
+        # --- NOUVEAU : Tension Dynamique ---
+        self.tension_dynamique = float(data["tension_resistance_V"])
         self.puissance_dynamique = 0.0
 
-    # Fonction appelée par l'interface quand on bouge un slider ou qu'on change de mode
-    def modifier_parametres_controle(self, mode_pid_actif, nouvelle_puissance, nouvelle_consigne):
+    def modifier_parametres_controle(self, mode_pid_actif, nouvelle_puissance, nouvelle_consigne, nouvelle_tension):
         self.mode_pid_actif = mode_pid_actif
         self.puissance_manuelle_voulue = float(nouvelle_puissance)
         self.consigne_voulue = float(nouvelle_consigne)
+        self.tension_dynamique = float(nouvelle_tension)
+
+    # --- NOUVEAU : Fonction Pause ---
+    def toggle_pause(self):
+        self.en_pause = not self.en_pause
+        return self.en_pause
 
     def run(self):
         params = self.parametres
@@ -183,8 +196,6 @@ class SimulationThread(QThread):
         cst_diffusion_y = params["diffusivite_alpha"] * pas_temps / pas_y**2
         
         cst_perte_convection = params["coeff_convection_h"] * pas_temps / (params["masse_volumique_rho"] * params["chaleur_massique_cp"] * params["epaisseur_mm"])
-       
-        ajout_temp_resistance = (params["tension_resistance_V"]**2 * pas_temps) / (params["valeur_resistance_ohm"] * params["masse_volumique_rho"] * params["chaleur_massique_cp"] * params["epaisseur_mm"] * pas_x * pas_y)
 
         matrice_T = np.full_like(grille_X, params["temperature_ambiante_C"], dtype=np.float32)
         matrice_T_suivante = matrice_T.copy()
@@ -198,28 +209,23 @@ class SimulationThread(QThread):
         idx_x_tec, idx_y_tec = coord_x_vers_indice(params["pos_x_tec_mm"]), coord_y_vers_indice(params["pos_y_tec_mm"])
         idx_x_res, idx_y_res = coord_x_vers_indice(params["pos_x_resistance_mm"]), coord_y_vers_indice(params["pos_y_resistance_mm"])
 
-        # ==============================================================================
-        # INITIALISATION DU RÉGULATEUR ARDUINO (MODE 2 : TUSTIN AW)
-        # ==============================================================================
-        frequence_pid = 10.0  # L'Arduino tourne à 10 Hz
+        frequence_pid = 10.0  
         periode_pid = 1.0 / frequence_pid
         prochain_temps_pid = 0.0
         limit_pwm_percent = 100.0
         
-        # Coefficients de ton interface Arduino
-        aw_kc = 5.0
+        aw_kc = 1.5 
         pd_b0 = 38.142857
         pd_b1 = -38.047619
         pd_a1 = -0.904762
         int_alpha = 0.998751
 
-        # Mémoires du PID
         e_prev1 = 0.0
         uD_prev = 0.0
         uI_prev = 0.0
         u_prev = 0.0
+        self.pwmActuel = 0
 
-        # Lookup table pour U_op
         table_consignes = [10.20, 12.15, 12.70, 16.20, 30.70, 36.38, 41.30, 54.10]
         table_pwm = [-30.0, -20.0, -15.0, -10.0, 10.0, 15.0, 20.0, 30.0]
 
@@ -231,7 +237,6 @@ class SimulationThread(QThread):
                     pct = (target - table_consignes[i]) / (table_consignes[i+1] - table_consignes[i])
                     return table_pwm[i] + pct * (table_pwm[i+1] - table_pwm[i])
             return 0.0
-        # ==============================================================================
 
         calculs_par_actualisation = 150
         temps_ecoule = 0.0
@@ -246,47 +251,59 @@ class SimulationThread(QThread):
 
         while self.en_cours_d_execution and temps_ecoule < params["temps_total_s"]:
             
-            # === DÉCISION DE CONTRÔLE (Manuel ou PID) ===
+            # --- GESTION DE LA PAUSE ---
+            while self.en_pause and self.en_cours_d_execution:
+                self.msleep(50) 
+            if not self.en_cours_d_execution:
+                break
+                
             if self.mode_pid_actif:
-                # Émulation du tick Arduino à 10 Hz
                 if temps_ecoule >= prochain_temps_pid:
                     t3_actuel = matrice_T[idx_y_T3, idx_x_T3] 
                     e_k = self.consigne_voulue - t3_actuel
                     aw_uop = obtenir_uop(self.consigne_voulue)
                     
-                    # Mathématiques du PID Tustin
                     uD = (aw_kc * pd_b0 * e_k) + (aw_kc * pd_b1 * e_prev1) - (pd_a1 * uD_prev)
                     uI = (1.0 - int_alpha) * (u_prev - aw_uop) + (int_alpha * uI_prev)
                     v = uD + aw_uop + uI
                     
                     u_sat = np.clip(v, -limit_pwm_percent, limit_pwm_percent)
                     
-                    # MAJ mémoires
                     uD_prev = uD
                     uI_prev = uI
                     e_prev1 = e_k
                     u_prev = u_sat
                     
-                    # Conversion PWM en Watts
-                    pwm_percent_abs = abs(u_sat)
+                    pwm_demande = int(u_sat * 10.23)
+                    limit_var = 100
+                    
+                    if pwm_demande > self.pwmActuel + limit_var:
+                        self.pwmActuel += limit_var
+                    elif pwm_demande < self.pwmActuel - limit_var:
+                        self.pwmActuel -= limit_var
+                    else:
+                        self.pwmActuel = pwm_demande
+
+                    pwm_percent_abs = (abs(self.pwmActuel) / 1023.0) * 100.0
                     puissance_w = (((1.703277e-05 * pwm_percent_abs + 9.947817e-04) * pwm_percent_abs) + 1.406312e-01) * pwm_percent_abs + 1.734031e-02
                     
-                    if u_sat < 0:
-                        self.puissance_dynamique = -puissance_w # Refroidit
-                    elif u_sat > 0:
-                        self.puissance_dynamique = puissance_w  # Chauffe
+                    if self.pwmActuel < 0:
+                        self.puissance_dynamique = -puissance_w 
+                    elif self.pwmActuel > 0:
+                        self.puissance_dynamique = puissance_w  
                     else:
                         self.puissance_dynamique = 0.0
                         
                     prochain_temps_pid += periode_pid
             else:
-                # Mode Manuel : On force simplement la puissance
                 self.puissance_dynamique = self.puissance_manuelle_voulue
 
 
-            # === APPLICATION DE LA PUISSANCE AU MAILLAGE ===
             puissance_volumique_tec = self.puissance_dynamique / volume_module_tec
             ajout_temp_tec = (puissance_volumique_tec * pas_temps) / (params["masse_volumique_rho"] * params["chaleur_massique_cp"])
+            
+            # --- CALCUL EN TEMPS RÉEL DE LA PERTURBATION (TENSION) ---
+            ajout_temp_resistance = (self.tension_dynamique**2 * pas_temps) / (params["valeur_resistance_ohm"] * params["masse_volumique_rho"] * params["chaleur_massique_cp"] * params["epaisseur_mm"] * pas_x * pas_y)
 
             for _ in range(calculs_par_actualisation):
                 if temps_ecoule >= params["temps_total_s"]: break
@@ -324,6 +341,7 @@ class SimulationThread(QThread):
 
     def stop(self):
         self.en_cours_d_execution = False
+        self.en_pause = False
 
 # ==============================================================================
 # FENÊTRE PRINCIPALE
@@ -334,7 +352,6 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(DARK_QSS)
         self.setWindowTitle("Simulateur de plaque asservie en température")
         
-        # Dialogue pour choisir la taille de la fenêtre
         dialog = QMessageBox(self)
         dialog.setWindowTitle("Taille de la fenêtre")
         dialog.setText("Quelle taille de fenêtre voulez-vous ?")
@@ -381,7 +398,6 @@ class MainWindow(QMainWindow):
         separateur_principal = QSplitter(Qt.Orientation.Horizontal)
         layout_principal.addWidget(separateur_principal)
 
-        # === PANNEAU GAUCHE ===
         panneau_gauche = QWidget()
         panneau_gauche.setObjectName("LeftPanel")
         layout_gauche = QVBoxLayout(panneau_gauche)
@@ -430,7 +446,7 @@ class MainWindow(QMainWindow):
                     "puissance_tec_W": (-10, 10), "consigne_C": (-20, 100),
                     "longueur_y_mm": (50, 200), "largeur_x_mm": (30, 150),
                     "epaisseur_mm": (0.1, 5), 
-                    "temps_total_s": (10, 300), "resolution_grille": (10, 100),
+                    "temps_total_s": (10, 1000), "resolution_grille": (10, 100),
                     "temperature_ambiante_C": (-20, 50), "intervalle_affichage": (1, 50),
                     "diffusivite_alpha": (50, 150), "masse_volumique_rho": (0.001, 0.01),
                     "chaleur_massique_cp": (0.5, 1.5), "coeff_convection_h": (0.00001, 0.0005),
@@ -458,30 +474,25 @@ class MainWindow(QMainWindow):
         zone_defilement.setWidget(contenu_defilement)
         layout_gauche.addWidget(zone_defilement)
 
-        # Connexion des sliders de contrôle en direct
+        # Connexion des sliders en direct
         self.champs_saisie["puissance_tec_W"].slider.valueChanged.connect(self.actualiser_controle_live)
-        self.champs_saisie["puissance_tec_W"].value_input.editingFinished.connect(self.actualiser_controle_live)
         self.champs_saisie["consigne_C"].slider.valueChanged.connect(self.actualiser_controle_live)
-        self.champs_saisie["consigne_C"].value_input.editingFinished.connect(self.actualiser_controle_live)
-
+        self.champs_saisie["tension_resistance_V"].slider.valueChanged.connect(self.actualiser_controle_live) # NOUVEAU: Écoute de la tension
+        
         cadre_controles = QFrame()
         cadre_controles.setObjectName("Section")
         layout_controles = QVBoxLayout(cadre_controles)
         
-        # --- NOUVEAU: Le Menu Déroulant du Mode ---
         layout_mode = QHBoxLayout()
         label_mode = QLabel("Mode de fonctionnement :")
         label_mode.setStyleSheet("font-weight: bold; color: #38BDF8;")
         self.combo_mode_sys = QComboBox()
         self.combo_mode_sys.addItems(["PID Automatique (Consigne)", "Manuel (Puissance Brute)"])
-        self.combo_mode_sys.setStyleSheet("""
-            QComboBox { background-color: #1E293B; color: #E2E8F0; border: 1px solid #334155; padding: 5px; border-radius: 4px;}
-        """)
+        self.combo_mode_sys.setStyleSheet("QComboBox { background-color: #1E293B; color: #E2E8F0; border: 1px solid #334155; padding: 5px; border-radius: 4px;}")
         self.combo_mode_sys.currentIndexChanged.connect(self.actualiser_controle_live)
         layout_mode.addWidget(label_mode)
         layout_mode.addWidget(self.combo_mode_sys)
         layout_controles.addLayout(layout_mode)
-        # ------------------------------------------
 
         ligne_boutons_fichiers = QHBoxLayout()
         self.bouton_importer = QPushButton("Importer JSON")
@@ -495,11 +506,25 @@ class MainWindow(QMainWindow):
         self.bouton_demarrer = QPushButton("DÉMARRER")
         self.bouton_demarrer.setObjectName("btn_go")
         self.bouton_demarrer.clicked.connect(self.lancer_simulation)
+        
+        self.bouton_pause = QPushButton("PAUSE")
+        self.bouton_pause.setObjectName("btn_pause")
+        self.bouton_pause.clicked.connect(self.basculer_pause)
+        self.bouton_pause.setEnabled(False)
+
         self.bouton_arreter = QPushButton("ARRÊTER")
         self.bouton_arreter.setObjectName("btn_close")
         self.bouton_arreter.clicked.connect(self.stopper_simulation)
+        
         ligne_boutons_simulation.addWidget(self.bouton_demarrer)
+        ligne_boutons_simulation.addWidget(self.bouton_pause)
         ligne_boutons_simulation.addWidget(self.bouton_arreter)
+        
+        # --- NOUVEAU: Bouton QuickSave ---
+        self.bouton_quicksave = QPushButton("QUICKSAVE (Pause requise)")
+        self.bouton_quicksave.setObjectName("btn_quicksave")
+        self.bouton_quicksave.clicked.connect(self.quicksave_instantane)
+        self.bouton_quicksave.setEnabled(False)
 
         self.barre_progression = QProgressBar()
         self.barre_progression.setValue(0)
@@ -507,6 +532,7 @@ class MainWindow(QMainWindow):
         
         layout_controles.addLayout(ligne_boutons_fichiers)
         layout_controles.addLayout(ligne_boutons_simulation)
+        layout_controles.addWidget(self.bouton_quicksave) # Ajout du QuickSave
         layout_controles.addWidget(self.barre_progression)
         layout_gauche.addWidget(cadre_controles)
 
@@ -715,6 +741,12 @@ class MainWindow(QMainWindow):
         self.btn_play_pause.setText("▶")
         self.combo_vitesse.setEnabled(False)
         self.lecture_en_cours = False
+        
+        # Reset des boutons UI
+        self.bouton_pause.setEnabled(True)
+        self.bouton_pause.setText("PAUSE")
+        self.bouton_pause.setStyleSheet("")
+        self.bouton_quicksave.setEnabled(False)
 
         self.surface_thermique.resetTransform()
 
@@ -727,7 +759,6 @@ class MainWindow(QMainWindow):
         matrice_initiale = np.full((self.ny, self.nx), params["temperature_ambiante_C"], dtype=np.float32)
         self.dessiner_rendu_3d(matrice_initiale, 0.0, params["temperature_ambiante_C"], params["temperature_ambiante_C"], params["temperature_ambiante_C"])
 
-        # Est-ce qu'on commence en mode PID (Index 0) ou Manuel (Index 1) ?
         mode_pid = (self.combo_mode_sys.currentIndex() == 0)
 
         self.thread_simulation = SimulationThread(params, mode_pid)
@@ -736,18 +767,52 @@ class MainWindow(QMainWindow):
         self.thread_simulation.finished_signal.connect(self.terminer_simulation)
         self.thread_simulation.start()
 
+    # --- NOUVEAU: Mettre la simulation en pause/reprise ---
+    def basculer_pause(self):
+        if hasattr(self, 'thread_simulation') and self.thread_simulation.isRunning():
+            est_en_pause = self.thread_simulation.toggle_pause()
+            if est_en_pause:
+                self.bouton_pause.setText("REPRENDRE")
+                self.bouton_pause.setStyleSheet("background-color: #10B981; border: 1px solid #059669;") # Devient vert
+                self.bouton_quicksave.setEnabled(True)
+                self.bouton_quicksave.setText("QUICKSAVE ICI")
+            else:
+                self.bouton_pause.setText("PAUSE")
+                self.bouton_pause.setStyleSheet("") # Retour au jaune
+                self.bouton_quicksave.setEnabled(False)
+                self.bouton_quicksave.setText("QUICKSAVE (Pause requise)")
+
+    # --- NOUVEAU: Sauvegarder instantanément l'état en cours ---
+    def quicksave_instantane(self):
+        resultats_actuels = {
+            "temps": self.donnees_temps,
+            "T1": self.donnees_y_t1,
+            "T2": self.donnees_y_t2,
+            "T3": self.donnees_y_t3
+        }
+        contenu_export = {"parametres": self.params_actuels, "resultats": resultats_actuels}
+        
+        chemin_fichier, _ = QFileDialog.getSaveFileName(self, "QuickSave : Sauvegarder les résultats", "quicksave.json", "Fichiers JSON (*.json);;Tous les fichiers (*.*)", options=QFileDialog.Option.DontUseNativeDialog)
+        if chemin_fichier:
+            if not chemin_fichier.endswith(".json"): chemin_fichier += ".json"
+            with open(chemin_fichier, "w") as fichier:
+                json.dump(contenu_export, fichier, indent=4, default=lambda x: x.item() if isinstance(x, np.generic) else x)
+            QMessageBox.information(self, "Succès", f"QuickSave effectué !\nFichier : {chemin_fichier}")
+
     def stopper_simulation(self):
         if hasattr(self, 'thread_simulation') and self.thread_simulation.isRunning():
             self.thread_simulation.stop()
+            self.bouton_pause.setEnabled(False)
+            self.bouton_quicksave.setEnabled(False)
             self.exporter_resultats_json()
             
-    # Fonction pour envoyer les contrôles au thread en direct
     def actualiser_controle_live(self):
         if hasattr(self, 'thread_simulation') and self.thread_simulation.isRunning():
             mode_pid = (self.combo_mode_sys.currentIndex() == 0)
             puiss = self.champs_saisie["puissance_tec_W"].value()
             cons = self.champs_saisie["consigne_C"].value()
-            self.thread_simulation.modifier_parametres_controle(mode_pid, puiss, cons)
+            tens = self.champs_saisie["tension_resistance_V"].value()
+            self.thread_simulation.modifier_parametres_controle(mode_pid, puiss, cons, tens)
 
     def actualiser_graphiques(self, temps_sim, matrice_temperatures_3d, temp_T1, temp_T2, temp_T3):
         max_actuel = matrice_temperatures_3d.max()
@@ -881,6 +946,8 @@ class MainWindow(QMainWindow):
         self.donnees_entree = parametres
         self.donnees_resultats = resultats
         self.mode_direct_actif = False
+        self.bouton_pause.setEnabled(False)
+        self.bouton_quicksave.setEnabled(False)
         
         if self.donnees_temps:
             self.curseur_temps_2d.setPos(self.donnees_temps[-1])
