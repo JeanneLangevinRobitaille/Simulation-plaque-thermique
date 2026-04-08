@@ -61,13 +61,10 @@ Les paramètres sont les suivants :
 
 **4. Les boutons**
 
-Après avoir entré les paramètres voulus dans l'interface, le bouton *GO* active la simulation. Une 
+Après avoir entré les paramètres voulus dans l'interface, le bouton *Simulate* active la simulation. Une 
 fenêtre secondaire apparait à côté de l'interface qui contient une représentation 3D de la plaque 
 ainsi qu'un graphique pour les données de température à travers le temps de T1, T2 et T3. À n'importe 
 quel moment, le bouton *Pause/Resume* met la simulation sur pause et la résume lorsqu'il est utilisé une 
-autre fois. Lorsque la simulation est figée, il est possible de changer la valeur de **Puissance entrée** et **Tension**. Le bouton *Save* ouvre une fenêtre du système de fichier de la machine et permet de 
-choisir l'endroit et le nom du fichier JSON qui sera créer et sauvegarder après que 
-le simulateur soit fermé. Le bouton *Input* fait la même chose que *Save*, sauf que le fichier JSON 
-contient une liste de paramètres qui sont automatiquement entrés dans l'interface. Un fichier 
-exemple *testparams.json* est inclue avec le repo. Finalement, le bouton *Exit* ferme toutes les fenêtres
-et sauvegarde les données dans le fichier JSON choisie s'il y a lieu.
+seconde fois. Lorsque la simulation est figée, il est possible de changer la valeur de **Puissance entrée** et **Tension**. Le bouton *Save* ouvre une fenêtre du système de fichier de la machine et permet de sauvegarder les données de la simulation sous la forme d'un fichier JSON. Le bouton *Input* fait la même chose que *Save*, sauf avec un fichier JSON qui
+contient une liste de paramètres. Ceux-ci sont automatiquement intégrés dans l'interface. Un fichier 
+exemple *testparams.json* est inclue avec le repo à fin d'exemple. Finalement, le bouton *Exit* ferme l'application.
