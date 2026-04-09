@@ -293,17 +293,33 @@ class StableGLViewWidget(gl.GLViewWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.lock_2d_interaction = False
+        self.last_manual_interaction = 0.0
+
+    def _marquer_interaction_utilisateur(self):
+        self.last_manual_interaction = time.perf_counter()
+
+    def interaction_manuelle_recente(self, cooldown_s=1.25):
+        return (time.perf_counter() - self.last_manual_interaction) < cooldown_s
+
+    def mousePressEvent(self, event):
+        if self.lock_2d_interaction:
+            event.accept()
+            return
+        self._marquer_interaction_utilisateur()
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self.lock_2d_interaction:
             event.accept()
             return
+        self._marquer_interaction_utilisateur()
         super().mouseMoveEvent(event)
 
     def wheelEvent(self, event):
         if self.lock_2d_interaction:
             event.accept()
             return
+        self._marquer_interaction_utilisateur()
         super().wheelEvent(event)
 
 
@@ -676,9 +692,10 @@ class MainWindow(QMainWindow):
         self.layout_formulaire.setSpacing(15) 
         
         self.champs_saisie = {}
+        self.consigne_fixee_C = 35.0
         
         definition_parametres = {
-            "Contrôle Thermique": {"puissance_tec_W": 1.0, "consigne_C": 35.0},
+            "Contrôle Thermique": {"puissance_tec_W": 1.0},
             "Paramètres de la plaque": {"longueur_y_mm": 117.5, "largeur_x_mm": 61.5, "epaisseur_mm": 1.7},
             "Paramètres de la simulation": {"temps_total_s": 150.0, "resolution_grille": 50.0, "temperature_ambiante_C": 20.0, "intervalle_affichage": 1.0},
             "Paramètres physiques": {"diffusivite_alpha": 97.0, "masse_volumique_rho": 2.7e-3, "chaleur_massique_cp": 0.9, "coeff_convection_h": 3.2e-5},
@@ -745,10 +762,8 @@ class MainWindow(QMainWindow):
 
         # Connexion des sliders en direct
         self.champs_saisie["puissance_tec_W"].slider.valueChanged.connect(self.actualiser_controle_live)
-        self.champs_saisie["consigne_C"].slider.valueChanged.connect(self.actualiser_controle_live)
         self.champs_saisie["tension_resistance_V"].slider.valueChanged.connect(self.actualiser_controle_live) # NOUVEAU: Écoute de la tension
         self.champs_saisie["puissance_tec_W"].value_input.editingFinished.connect(self.actualiser_controle_live)
-        self.champs_saisie["consigne_C"].value_input.editingFinished.connect(self.actualiser_controle_live)
         self.champs_saisie["tension_resistance_V"].value_input.editingFinished.connect(self.actualiser_controle_live)
         for champ in self.champs_saisie.values():
             champ.slider.valueChanged.connect(self.mettre_a_jour_indicateur_stabilite)
@@ -760,35 +775,6 @@ class MainWindow(QMainWindow):
         layout_controles.setContentsMargins(12, 12, 12, 12)
         layout_controles.setSpacing(10)
         
-        layout_mode = QVBoxLayout()
-        label_mode = QLabel("Mode de fonctionnement :")
-        label_mode.setStyleSheet("font-weight: bold; color: #38BDF8;")
-        self.combo_mode_sys = QComboBox()
-        self.combo_mode_sys.addItems(["PID Automatique (Consigne)", "Manuel (Puissance Brute)"])
-        self.combo_mode_sys.setStyleSheet("QComboBox { background-color: #1E293B; color: #E2E8F0; border: 1px solid #334155; padding: 5px; border-radius: 4px;}")
-        self.combo_mode_sys.currentIndexChanged.connect(self.actualiser_controle_live)
-        self.combo_mode_sys.currentIndexChanged.connect(self.synchroniser_boutons_mode)
-
-        layout_mode_boutons = QHBoxLayout()
-        self.bouton_mode_pid = QPushButton("PID")
-        self.bouton_mode_pid.setObjectName("btn_mode_pid")
-        self.bouton_mode_pid.setCheckable(True)
-        self.bouton_mode_pid.clicked.connect(lambda: self.changer_mode_systeme(0))
-
-        self.bouton_mode_manuel = QPushButton("MANUEL")
-        self.bouton_mode_manuel.setObjectName("btn_mode_manual")
-        self.bouton_mode_manuel.setCheckable(True)
-        self.bouton_mode_manuel.clicked.connect(lambda: self.changer_mode_systeme(1))
-
-        layout_mode_boutons.addWidget(self.bouton_mode_pid)
-        layout_mode_boutons.addWidget(self.bouton_mode_manuel)
-
-        layout_mode.addWidget(label_mode)
-        layout_mode.addLayout(layout_mode_boutons)
-        layout_controles.addLayout(layout_mode)
-        self.combo_mode_sys.hide()
-        self.synchroniser_boutons_mode(self.combo_mode_sys.currentIndex())
-
         ligne_boutons_fichiers = QHBoxLayout()
         self.bouton_importer = QPushButton("Importer JSON")
         self.bouton_importer.clicked.connect(self.importer_parametres_json)
@@ -855,12 +841,14 @@ class MainWindow(QMainWindow):
         layout_3d_global.setSpacing(0)
 
         layout_overlay = QHBoxLayout()
-        layout_overlay.setContentsMargins(10, 10, 10, 0)
+        layout_overlay.setContentsMargins(10, 8, 10, 0)
+        layout_overlay.setSpacing(12)
+        layout_overlay.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.boite_infos_3d = QWidget()
         layout_infos_3d = QVBoxLayout(self.boite_infos_3d)
         layout_infos_3d.setContentsMargins(0, 0, 0, 0)
-        layout_infos_3d.setSpacing(6)
+        layout_infos_3d.setSpacing(8)
 
         self.label_ressources = QLabel("CPU app : --.- %\nRAM app : --.- MB")
         self.label_ressources.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -875,10 +863,23 @@ class MainWindow(QMainWindow):
                 font-weight: 700;
             }
         """)
-        layout_infos_3d.addWidget(self.label_ressources)
+        layout_infos_3d.addWidget(self.label_ressources, alignment=Qt.AlignmentFlag.AlignLeft)
         layout_infos_3d.addStretch()
 
         layout_overlay.addWidget(self.boite_infos_3d, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        layout_overlay.addStretch(1)
+
+        self.barre_controles_vue = QFrame()
+        self.barre_controles_vue.setStyleSheet("""
+            QFrame {
+                background-color: rgba(15, 23, 42, 0.82);
+                border: 1px solid #334155;
+                border-radius: 8px;
+            }
+        """)
+        layout_barre_controles_vue = QHBoxLayout(self.barre_controles_vue)
+        layout_barre_controles_vue.setContentsMargins(8, 6, 8, 6)
+        layout_barre_controles_vue.setSpacing(8)
 
         self.bouton_vue_2d = QPushButton("VUE 2D")
         self.bouton_vue_2d.setCheckable(True)
@@ -892,26 +893,33 @@ class MainWindow(QMainWindow):
                 padding: 8px 12px;
                 font-size: 11px;
                 font-weight: bold;
+                min-width: 70px;
             }
             QPushButton:hover { background-color: rgba(56, 189, 248, 0.98); }
             QPushButton:checked { background-color: rgba(16, 185, 129, 0.95); border: 1px solid #059669; }
         """)
         self.bouton_vue_2d.clicked.connect(self.basculer_vue_2d)
-        layout_overlay.addWidget(self.bouton_vue_2d, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        layout_barre_controles_vue.addWidget(self.bouton_vue_2d)
 
         self.label_perspective = QLabel("Perspective")
-        self.label_perspective.setStyleSheet("color: #7DD3FC; font-size: 11px; font-weight: bold;")
-        layout_overlay.addWidget(self.label_perspective, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.label_perspective.setStyleSheet("color: #7DD3FC; font-size: 11px; font-weight: bold; padding-left: 4px;")
+        layout_barre_controles_vue.addWidget(self.label_perspective)
 
         self.slider_perspective = QSlider(Qt.Orientation.Horizontal)
         self.slider_perspective.setRange(5, 90)
         self.slider_perspective.setValue(int(self.perspective_fov))
-        self.slider_perspective.setFixedWidth(120)
+        self.slider_perspective.setFixedWidth(130)
         self.slider_perspective.setToolTip("Ajuster la perspective de la vue 3D")
+        self.slider_perspective.setStyleSheet("""
+            QSlider::groove:horizontal { border: none; height: 4px; background: #475569; border-radius: 2px; }
+            QSlider::sub-page:horizontal { background: #EAB308; border-radius: 2px; }
+            QSlider::handle:horizontal { background: #FDE047; border: 1px solid #CA8A04; width: 12px; margin: -5px 0; border-radius: 6px; }
+        """)
         self.slider_perspective.valueChanged.connect(self.mettre_a_jour_perspective_camera)
-        layout_overlay.addWidget(self.slider_perspective, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        layout_barre_controles_vue.addWidget(self.slider_perspective)
 
-        layout_overlay.addStretch()
+        self.barre_controles_vue.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        layout_overlay.addWidget(self.barre_controles_vue, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
 
         self.bouton_fullscreen = QPushButton("⛶")
         self.bouton_fullscreen.setObjectName("btn_fullscreen")
@@ -1085,7 +1093,9 @@ class MainWindow(QMainWindow):
         self.mettre_a_jour_ressources_systeme()
 
     def recuperer_parametres_interface(self):
-        return {cle: champ.value() for cle, champ in self.champs_saisie.items()}
+        params = {cle: champ.value() for cle, champ in self.champs_saisie.items()}
+        params["consigne_C"] = self.consigne_fixee_C
+        return params
 
     def obtenir_ram_processus_mo(self):
         try:
@@ -1348,21 +1358,10 @@ class MainWindow(QMainWindow):
                 self.bouton_demarrer.setEnabled(True)
 
     def changer_mode_systeme(self, index):
-        index = int(index)
-        if self.combo_mode_sys.currentIndex() != index:
-            self.combo_mode_sys.setCurrentIndex(index)
-        else:
-            self.synchroniser_boutons_mode(index)
-            self.actualiser_controle_live()
+        return
 
     def synchroniser_boutons_mode(self, index):
-        if hasattr(self, "bouton_mode_pid") and hasattr(self, "bouton_mode_manuel"):
-            self.bouton_mode_pid.blockSignals(True)
-            self.bouton_mode_manuel.blockSignals(True)
-            self.bouton_mode_pid.setChecked(index == 0)
-            self.bouton_mode_manuel.setChecked(index == 1)
-            self.bouton_mode_pid.blockSignals(False)
-            self.bouton_mode_manuel.blockSignals(False)
+        return
 
     def valider_parametres(self, params):
         params_valides = {}
@@ -1376,6 +1375,7 @@ class MainWindow(QMainWindow):
 
         params_valides["resolution_grille"] = int(round(params_valides["resolution_grille"]))
         params_valides["intervalle_affichage"] = max(1, int(round(params_valides["intervalle_affichage"])))
+        params_valides["consigne_C"] = float(params.get("consigne_C", self.consigne_fixee_C))
 
         if params_valides["resolution_grille"] < 2:
             raise ValueError("La résolution de grille doit être supérieure ou égale à 2.")
@@ -1434,7 +1434,13 @@ class MainWindow(QMainWindow):
                 nb_parametres_importes = 0
                 champs_invalides = []
                 for cle, valeur in parametres.items():
-                    if cle in self.champs_saisie:
+                    if cle == "consigne_C":
+                        try:
+                            self.consigne_fixee_C = float(valeur)
+                            nb_parametres_importes += 1
+                        except (TypeError, ValueError):
+                            champs_invalides.append(cle)
+                    elif cle in self.champs_saisie:
                         try:
                             self.champs_saisie[cle].setValue(float(valeur))
                             nb_parametres_importes += 1
@@ -1550,7 +1556,7 @@ class MainWindow(QMainWindow):
         matrice_initiale = np.full((self.ny, self.nx), params["temperature_ambiante_C"], dtype=np.float32)
         self.dessiner_rendu_3d(matrice_initiale, 0.0, params["temperature_ambiante_C"], params["temperature_ambiante_C"], params["temperature_ambiante_C"])
 
-        mode_pid = (self.combo_mode_sys.currentIndex() == 0)
+        mode_pid = False
 
         self.thread_simulation = SimulationThread(params, mode_pid)
         self.thread_simulation.update_signal.connect(self.actualiser_graphiques)
@@ -1610,9 +1616,9 @@ class MainWindow(QMainWindow):
     def actualiser_controle_live(self):
         self.mettre_a_jour_indicateur_stabilite()
         if self.simulation_en_cours():
-            mode_pid = (self.combo_mode_sys.currentIndex() == 0)
+            mode_pid = False
             puiss = self.champs_saisie["puissance_tec_W"].value()
-            cons = self.champs_saisie["consigne_C"].value()
+            cons = self.consigne_fixee_C
             tens = self.champs_saisie["tension_resistance_V"].value()
             self.thread_simulation.modifier_parametres_controle(mode_pid, puiss, cons, tens)
 
@@ -1700,6 +1706,16 @@ class MainWindow(QMainWindow):
         denominateur = max(np.tan(np.radians(fov_utilise / 2.0)), 1e-3)
         return distance_base * (numerateur / denominateur)
 
+    def convertir_distance_vue_vers_base(self, distance_vue, fov=None):
+        distance_vue = float(distance_vue)
+        fov_utilise = self.perspective_fov if fov is None else float(fov)
+        fov_utilise = max(5.0, fov_utilise)
+        fov_reference = max(5.0, float(getattr(self, "perspective_fov_reference", 45.0)))
+
+        numerateur = np.tan(np.radians(fov_utilise / 2.0))
+        denominateur = max(np.tan(np.radians(fov_reference / 2.0)), 1e-3)
+        return distance_vue * (numerateur / denominateur)
+
     def appliquer_mode_camera(self):
         if not hasattr(self, "vue_3d"):
             return
@@ -1726,14 +1742,36 @@ class MainWindow(QMainWindow):
             if hasattr(self.vue_3d, "lock_2d_interaction"):
                 self.vue_3d.lock_2d_interaction = False
             self.slider_perspective.setEnabled(True)
-            distance_compensee = self.calculer_distance_camera_compensee()
-            self.vue_3d.setCameraParams(
-                center=pg.Vector(0, centre_y, self.camera_centre_z),
-                distance=distance_compensee,
-                elevation=self.camera_elevation_initiale,
-                azimuth=self.camera_azimuth_initiale,
-                fov=max(5.0, self.perspective_fov),
-            )
+
+            fov_3d = max(5.0, self.perspective_fov)
+            azimuth_courant = float(self.vue_3d.opts.get("azimuth", self.camera_azimuth_initiale))
+            elevation_courante = float(self.vue_3d.opts.get("elevation", self.camera_elevation_initiale))
+            distance_vue_courante = float(self.vue_3d.opts.get("distance", self.calculer_distance_camera_compensee()))
+            centre_courant = self.vue_3d.opts.get("center", pg.Vector(0, centre_y, self.camera_centre_z))
+            interaction_recente = hasattr(self.vue_3d, "interaction_manuelle_recente") and self.vue_3d.interaction_manuelle_recente()
+
+            if interaction_recente:
+                self.camera_distance_actuelle = self.convertir_distance_vue_vers_base(distance_vue_courante, fov_3d)
+                try:
+                    self.camera_centre_z = float(centre_courant.z())
+                except Exception:
+                    pass
+                self.vue_3d.setCameraParams(
+                    center=centre_courant,
+                    distance=distance_vue_courante,
+                    elevation=elevation_courante,
+                    azimuth=azimuth_courant,
+                    fov=fov_3d,
+                )
+            else:
+                distance_compensee = self.calculer_distance_camera_compensee(self.camera_distance_actuelle, fov_3d)
+                self.vue_3d.setCameraParams(
+                    center=pg.Vector(0, centre_y, self.camera_centre_z),
+                    distance=distance_compensee,
+                    elevation=elevation_courante,
+                    azimuth=azimuth_courant,
+                    fov=fov_3d,
+                )
 
     def mettre_a_jour_perspective_camera(self, valeur):
         self.perspective_fov = max(5.0, float(valeur))
