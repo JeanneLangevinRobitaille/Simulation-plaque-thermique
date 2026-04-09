@@ -9,7 +9,7 @@ import threading
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 import numpy as np
 import pandas as pd
@@ -60,6 +60,9 @@ PERTURBATION_EXPERIMENT_SPECS = [
 
 # À remplir si les noms de fichiers TEC n'indiquent pas le PWM.
 TEC_EXPERIMENT_SPECS: list[dict[str, object]] = []
+
+
+ProgressCallback = Callable[[str], None]
 
 
 @dataclass(frozen=True)
@@ -218,6 +221,7 @@ def load_perturbation_experiments(
     data_dir: Path = DEFAULT_PERTURB_DIR,
     max_time_s: float = 600.0,
     downsample: int = 50,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[ThermalExperiment]:
     resolved_dir = _resolve_dir(
         data_dir,
@@ -244,19 +248,22 @@ def load_perturbation_experiments(
         raise FileNotFoundError(f"Aucun CSV de perturbation exploitable n'a été trouvé dans {resolved_dir}")
 
     experiments: list[ThermalExperiment] = []
-    for path, power_w in matches:
+    for index, (path, power_w) in enumerate(matches, start=1):
         time_s, sensor_deltas = _load_common_csv(path, max_time_s=max_time_s, downsample=downsample)
         filtered = {name: values for name, values in sensor_deltas.items() if name in {"T2", "T3", "T1"}}
-        experiments.append(
-            ThermalExperiment(
-                name=path.name,
-                source="perturbation",
-                input_level=float(power_w),
-                sign=1.0,
-                time_s=time_s,
-                sensor_deltas_c=filtered,
-            )
+        experiment = ThermalExperiment(
+            name=path.name,
+            source="perturbation",
+            input_level=float(power_w),
+            sign=1.0,
+            time_s=time_s,
+            sensor_deltas_c=filtered,
         )
+        experiments.append(experiment)
+        if progress_callback is not None:
+            progress_callback(
+                f"Chargement {index}/{len(matches)} : [perturbation] {experiment.name} | {experiment.input_level:.2f} W | capteurs={sorted(experiment.sensor_deltas_c.keys())}"
+            )
     return experiments
 
 
@@ -264,6 +271,7 @@ def load_tec_experiments(
     data_dir: Path = DEFAULT_TEC_DIR,
     max_time_s: float = 800.0,
     downsample: int = 10,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[ThermalExperiment]:
     resolved_dir = _resolve_dir(
         data_dir,
@@ -298,18 +306,22 @@ def load_tec_experiments(
         )
 
     experiments: list[ThermalExperiment] = []
-    for path, pwm_percent, sign in matches:
+    for index, (path, pwm_percent, sign) in enumerate(matches, start=1):
         time_s, sensor_deltas = _load_common_csv(path, max_time_s=max_time_s, downsample=downsample)
-        experiments.append(
-            ThermalExperiment(
-                name=path.name,
-                source="tec",
-                input_level=float(pwm_percent),
-                sign=float(sign),
-                time_s=time_s,
-                sensor_deltas_c=sensor_deltas,
-            )
+        experiment = ThermalExperiment(
+            name=path.name,
+            source="tec",
+            input_level=float(pwm_percent),
+            sign=float(sign),
+            time_s=time_s,
+            sensor_deltas_c=sensor_deltas,
         )
+        experiments.append(experiment)
+        if progress_callback is not None:
+            mode = "refroidissement" if experiment.sign < 0 else "chauffage"
+            progress_callback(
+                f"Chargement {index}/{len(matches)} : [tec] {experiment.name} | PWM={experiment.input_level:.1f} % | {mode} | capteurs={sorted(experiment.sensor_deltas_c.keys())}"
+            )
     return experiments
 
 
@@ -453,42 +465,61 @@ def simulate_tec_response(
     )
 
 
-def evaluate_rmse(experiments: Iterable[ThermalExperiment], **params: float) -> float:
-    branch_errors: dict[str, list[float]] = {"perturbation": [], "tec": []}
+def _simulate_experiment(exp: ThermalExperiment, params: dict[str, float]) -> dict[str, np.ndarray]:
+    if exp.source == "perturbation":
+        return simulate_perturbation_response(
+            power_w=exp.input_level,
+            target_times=exp.time_s,
+            diffusivite_alpha=params["diffusivite_alpha"],
+            coeff_convection_h=params["coeff_convection_h"],
+            chaleur_massique_cp=params["chaleur_massique_cp"],
+            facteur_couplage_perturbation=params["facteur_couplage_perturbation"],
+            tau_perturbation_s=params["tau_perturbation_s"],
+        )
+    if exp.source == "tec":
+        return simulate_tec_response(
+            pwm_percent=exp.input_level,
+            sign=exp.sign,
+            target_times=exp.time_s,
+            diffusivite_alpha=params["diffusivite_alpha"],
+            coeff_convection_h=params["coeff_convection_h"],
+            chaleur_massique_cp=params["chaleur_massique_cp"],
+            facteur_couplage_tec=params["facteur_couplage_tec"],
+            tau_tec_s=params["tau_tec_s"],
+        )
+    raise ValueError(f"Type d'expérience inconnu: {exp.source}")
+
+
+def summarize_experiment_rmse(experiments: Iterable[ThermalExperiment], **params: float) -> list[dict[str, object]]:
+    details: list[dict[str, object]] = []
 
     for exp in experiments:
-        if exp.source == "perturbation":
-            sim = simulate_perturbation_response(
-                power_w=exp.input_level,
-                target_times=exp.time_s,
-                diffusivite_alpha=params["diffusivite_alpha"],
-                coeff_convection_h=params["coeff_convection_h"],
-                chaleur_massique_cp=params["chaleur_massique_cp"],
-                facteur_couplage_perturbation=params["facteur_couplage_perturbation"],
-                tau_perturbation_s=params["tau_perturbation_s"],
-            )
-        elif exp.source == "tec":
-            sim = simulate_tec_response(
-                pwm_percent=exp.input_level,
-                sign=exp.sign,
-                target_times=exp.time_s,
-                diffusivite_alpha=params["diffusivite_alpha"],
-                coeff_convection_h=params["coeff_convection_h"],
-                chaleur_massique_cp=params["chaleur_massique_cp"],
-                facteur_couplage_tec=params["facteur_couplage_tec"],
-                tau_tec_s=params["tau_tec_s"],
-            )
-        else:
-            raise ValueError(f"Type d'expérience inconnu: {exp.source}")
-
+        sim = _simulate_experiment(exp, params)
+        sensor_rmse: dict[str, float] = {}
         for sensor_name, measured in exp.sensor_deltas_c.items():
             if sensor_name in sim:
-                branch_errors[exp.source].append(float(np.mean((sim[sensor_name] - measured) ** 2)))
+                sensor_rmse[sensor_name] = math.sqrt(float(np.mean((sim[sensor_name] - measured) ** 2)))
 
-    active_branch_errors = [np.mean(values) for values in branch_errors.values() if values]
-    if not active_branch_errors:
+        if not sensor_rmse:
+            continue
+
+        details.append(
+            {
+                "nom": exp.name,
+                "source": exp.source,
+                "rmse_C": math.sqrt(float(np.mean([value**2 for value in sensor_rmse.values()]))),
+                "rmse_capteurs_C": sensor_rmse,
+            }
+        )
+
+    return details
+
+
+def evaluate_rmse(experiments: Iterable[ThermalExperiment], **params: float) -> float:
+    details = summarize_experiment_rmse(experiments, **params)
+    if not details:
         raise ValueError("Aucune erreur de calibration n'a pu être calculée")
-    return math.sqrt(float(np.mean(active_branch_errors)))
+    return math.sqrt(float(np.mean([detail["rmse_C"] ** 2 for detail in details])))
 
 
 def load_all_experiments(
@@ -498,33 +529,44 @@ def load_all_experiments(
     tec_max_time_s: float,
     perturb_downsample: int,
     tec_downsample: int,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[ThermalExperiment]:
     experiments: list[ThermalExperiment] = []
     errors: list[str] = []
 
     if perturb_dir is not None:
         try:
+            if progress_callback is not None:
+                progress_callback(f"Recherche des essais de perturbation dans : {perturb_dir}")
             experiments.extend(
                 load_perturbation_experiments(
                     data_dir=perturb_dir,
                     max_time_s=perturb_max_time_s,
                     downsample=perturb_downsample,
+                    progress_callback=progress_callback,
                 )
             )
         except Exception as exc:
             errors.append(f"Perturbation: {exc}")
+            if progress_callback is not None:
+                progress_callback(f"Erreur perturbation : {exc}")
 
     if tec_dir is not None:
         try:
+            if progress_callback is not None:
+                progress_callback(f"Recherche des essais TEC dans : {tec_dir}")
             experiments.extend(
                 load_tec_experiments(
                     data_dir=tec_dir,
                     max_time_s=tec_max_time_s,
                     downsample=tec_downsample,
+                    progress_callback=progress_callback,
                 )
             )
         except Exception as exc:
             errors.append(f"TEC: {exc}")
+            if progress_callback is not None:
+                progress_callback(f"Erreur TEC : {exc}")
 
     if not experiments:
         details = "\n".join(errors) if errors else "Aucune source d'essais n'a été fournie."
@@ -533,7 +575,10 @@ def load_all_experiments(
     return experiments
 
 
-def calibrate_combined(experiments: Iterable[ThermalExperiment]) -> dict:
+def calibrate_combined(
+    experiments: Iterable[ThermalExperiment],
+    progress_callback: ProgressCallback | None = None,
+) -> dict:
     experiments = list(experiments)
     if not experiments:
         raise ValueError("Aucun essai chargé pour la calibration combinée")
@@ -548,6 +593,10 @@ def calibrate_combined(experiments: Iterable[ThermalExperiment]) -> dict:
         "tau_tec_s": 6.0,
     }
     baseline_rmse = evaluate_rmse(experiments, **baseline)
+    if progress_callback is not None:
+        progress_callback(f"RMSE initiale : {baseline_rmse:.3f} °C")
+
+    optimization_state = {"count": 0, "best_rmse": float("inf")}
 
     def objective(vector: np.ndarray) -> float:
         values = {
@@ -569,7 +618,18 @@ def calibrate_combined(experiments: Iterable[ThermalExperiment]) -> dict:
             or values["tau_tec_s"] < 0
         ):
             return 1e12
+
         rmse = evaluate_rmse(experiments, **values)
+        optimization_state["count"] += 1
+        is_new_best = rmse + 1e-12 < optimization_state["best_rmse"]
+        if is_new_best:
+            optimization_state["best_rmse"] = rmse
+        if progress_callback is not None and (optimization_state["count"] <= 3 or is_new_best):
+            progress_callback(
+                "Itération "
+                f"{optimization_state['count']:03d} | RMSE={rmse:.3f} °C | "
+                f"alpha={values['diffusivite_alpha']:.2f}, h={values['coeff_convection_h']:.3e}, Cp={values['chaleur_massique_cp']:.3f}"
+            )
         return rmse**2
 
     result = minimize(
@@ -620,6 +680,9 @@ def calibrate_combined(experiments: Iterable[ThermalExperiment]) -> dict:
     usable_solution = math.isfinite(float(result.fun)) and rmse_after <= baseline_rmse + 1e-12
 
     branches = sorted({exp.source for exp in experiments})
+    rmse_details = summarize_experiment_rmse(experiments, **best_for_eval)
+    rmse_by_name = {detail["nom"]: detail for detail in rmse_details}
+
     summary = []
     for exp in experiments:
         detail = {
@@ -634,6 +697,13 @@ def calibrate_combined(experiments: Iterable[ThermalExperiment]) -> dict:
             detail["pwm_percent"] = round(exp.input_level, 3)
             detail["mode"] = "refroidissement" if exp.sign < 0 else "chauffage"
             detail["puissance_estimee_W"] = round(exp.sign * pwm_percent_to_power_w(exp.input_level), 3)
+
+        if exp.name in rmse_by_name:
+            detail["rmse_C"] = round(float(rmse_by_name[exp.name]["rmse_C"]), 3)
+            detail["rmse_capteurs_C"] = {
+                key: round(float(value), 3)
+                for key, value in rmse_by_name[exp.name]["rmse_capteurs_C"].items()
+            }
         summary.append(detail)
 
     return {
@@ -851,6 +921,7 @@ def launch_gui() -> None:
                     tec_max_time_s=tec_max_time_s,
                     perturb_downsample=perturb_downsample,
                     tec_downsample=tec_downsample,
+                    progress_callback=append_log,
                 )
 
                 if list_only:
@@ -859,7 +930,7 @@ def launch_gui() -> None:
                         append_log(_format_experiment_line(exp))
                     return
 
-                report = calibrate_combined(experiments)
+                report = calibrate_combined(experiments, progress_callback=append_log)
                 json_path = write_calibration_file(report, output_path=output_path)
 
                 append_log(f"Branches utilisées : {', '.join(report['branches_utilisees'])}")
@@ -869,6 +940,9 @@ def launch_gui() -> None:
                 append_log("Paramètres recommandés :")
                 for key, value in report["parametres"].items():
                     append_log(f"  - {key} = {value}")
+                append_log("Résultats par essai :")
+                for essai in report["essais"]:
+                    append_log(f"  - {essai['nom']} | RMSE={essai.get('rmse_C', float('nan')):.3f} °C | capteurs={essai['capteurs']}")
                 append_log(f"JSON écrit dans : {json_path}")
             except Exception as exc:
                 append_log(f"Erreur : {exc}")
