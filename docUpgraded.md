@@ -19,7 +19,22 @@ Les boutons de contrôle sont ce qui permettent d'envoyer les paramètres choisi
 
 À droite de l'écran, une surface montre l'évolution de la température sur la surface de la plaque et représente les thermistances par des points colorés. Ces points sont aussi représentés dans un graphique de température en fonction du temps qui est synchronisé avec la surface. Finalement, une barre de défilement permet d'observer rapidement l'évolution temporelle de la température de la même façon qu'une vidéo, ce qui facilite la révision de la simulation en préparation pour une autre. Un sélecteur de vitesse est aussi inclue à côté de cette barre de défilement, cependant elle n'affecte la simulation que très peu.
 
-**3. Les paramètres**
+  **3. Les fonctions**
+  
+- Changer n’importe quels des paramètres avant de lancer une simulation
+- Changer l’intrant du TEC et la tension de la résistance pendant la simulation
+- Importer un fichier JSON contenant des paramètres et les intégrer à l’interface
+- Exporter un fichier JSON contenant les paramètres et les données de la simulation
+- Activer la simulation
+- Recommencer la simulation
+- Mettre la simulation sur pause
+- Fermer la simulation
+- Interagir avec les graphiques (zoom in/out, rotation, etc)
+- Changer entre le mode puissance et le mode consigne de l’intrant du TEC
+- Voyager à travers l’historique temporelle de la simulation
+- Ajuster la vitesse de la simulation
+
+**4. Les paramètres**
 
 La simulation fonctionne avec une grande variété de paramètres qui définissent la nature 
 de la plaque, de ses intrants et des points d'intérêt. Tous les paramètres peuvent être 
@@ -57,6 +72,6 @@ Les paramètres sont les suivants :
   - Résistance : en ohms, la valeur de résistance de la perturbation
   - Tension : en volts, la tension constante appliquée à la résistance perturbative
 
-  **4. Les fonctions**
+
 
   
