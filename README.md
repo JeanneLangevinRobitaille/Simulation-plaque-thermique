@@ -5,10 +5,9 @@ Permet de voir comment l'énergie thermique du TEC et de la perturbation se prop
 travers la surface de la plaque. Le simulateur permet aussi de surveiller la progression 
 temporelle de la température à trois points différents et de sauvegarder les données sur votre machine. 
 
-Pour la remise, nous vous recommandons d'utiliser le fichier [SimulateurUpgrade.py](SimulateurUpgrade.py), car son interface est bien plus conviviale. 
-Celle-ci, ainsi que la version simple du simulateur trouvée dans le dossier *LegacyEdition*, utilisent les mêmes calculs, mais la version simple est dotée d'un interface moins esthétique, bien qu'elle ait les mêmes fonctionalités
+La remise utilise le fichier [SimulateurUpgrade.py](SimulateurUpgrade.py) qui contient l'entièreté du simulateur
 
-Pour la documentation de la version courante du simulateur utilisé pour la remise : [click](docUpgraded.md)
+Pour la documentation du simulateur utilisé pour la remise : [click here](docUpgraded.md)
 
 ## Gestion des librairies avec uv
 
