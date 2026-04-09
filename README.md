@@ -8,9 +8,7 @@ temporelle de la température à trois points différents et de sauvegarder les 
 Pour la remise, nous vous recommandons d'utiliser le fichier *SimulateurUpgraded.py*, car son interface est bien plus conviviale. 
 Celle-ci, ainsi que la version simple du simulateur trouvée dans le dossier *LegacyEdition*, utilisent les mêmes calculs, mais la version simple est dotée d'un interface moins esthétique, bien qu'elle ait les mêmes fonctionalités
 
-Pour la documentation de la version courante du simulateur (la remise) : [click](docUpgraded.md)
-
-Pour la documentation de la version simple du simulateur : [click](LegacyEdition/docClassic.md)
+Pour la documentation de la version courante du simulateur utilisé pour la remise : [click](docUpgraded.md)
 
 ## Gestion des librairies avec uv
 
@@ -44,3 +42,9 @@ Ensuite, faire un commit de ces fichiers:
 
 - `pyproject.toml`
 - `uv.lock`
+
+### Version simplifiée du simulateur
+
+Il existe aussi une version simplifiée du simulateur ayant les mêmes fonctions, mais un interface beaucoup moins compliquée.
+
+Pour la documentation de la version simple du simulateur : [click](LegacyEdition/docClassic.md)
