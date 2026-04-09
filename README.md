@@ -8,7 +8,7 @@ temporelle de la température à trois points différents et de sauvegarder les 
 Pour la remise, nous vous recommandons d'utiliser le fichier *SimulateurUpgraded.py*, car son interface est bien plus conviviale. 
 Celle-ci, ainsi que la version simple du simulateur trouvée dans le dossier *LegacyEdition*, utilisent les mêmes calculs, mais la version simple est dotée d'un interface moins esthétique, bien qu'elle ait les mêmes fonctionalités
 
-Pour la documentation de la version courante du simulateur : [click](docUpgraded.md)
+Pour la documentation de la version courante du simulateur (la remise) : [click](docUpgraded.md)
 
 Pour la documentation de la version simple du simulateur : [click](LegacyEdition/docClassic.md)
 
