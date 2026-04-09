@@ -1,0 +1,77 @@
+{
+    "parametres": {
+        "diffusivite_alpha": 98.444,
+        "coeff_convection_h": 4.04e-05,
+        "chaleur_massique_cp": 1.7157,
+        "facteur_couplage_perturbation": 0.275,
+        "constante_temps_perturbation_s": 9.25,
+        "facteur_couplage_tec": 1.0,
+        "constante_temps_tec_s": 6.0
+    },
+    "calibration": {
+        "success": true,
+        "optimiseur_reussi": true,
+        "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+        "branches_utilisees": [
+            "perturbation"
+        ],
+        "nombre_essais": 4,
+        "rmse_avant_C": 19.455238569373673,
+        "rmse_apres_C": 1.048976034659188,
+        "parametres": {
+            "diffusivite_alpha": 98.444,
+            "coeff_convection_h": 4.04e-05,
+            "chaleur_massique_cp": 1.7157,
+            "facteur_couplage_perturbation": 0.275,
+            "constante_temps_perturbation_s": 9.25,
+            "facteur_couplage_tec": 1.0,
+            "constante_temps_tec_s": 6.0
+        },
+        "essais": [
+            {
+                "nom": "mesure (puissance 0.81W et 4.5 V).csv",
+                "source": "perturbation",
+                "signal": 0.81,
+                "capteurs": [
+                    "T1",
+                    "T2",
+                    "T3"
+                ],
+                "puissance_W": 0.81
+            },
+            {
+                "nom": "test de puissance (1.44 W) à résistance de perturbation.csv",
+                "source": "perturbation",
+                "signal": 1.44,
+                "capteurs": [
+                    "T1",
+                    "T2",
+                    "T3"
+                ],
+                "puissance_W": 1.44
+            },
+            {
+                "nom": "test puissance de 2.56 W (8V) à résist. perturbation.csv",
+                "source": "perturbation",
+                "signal": 2.56,
+                "capteurs": [
+                    "T1",
+                    "T2",
+                    "T3"
+                ],
+                "puissance_W": 2.56
+            },
+            {
+                "nom": "test puissance perturbation à 4W et 10V.csv",
+                "source": "perturbation",
+                "signal": 4.0,
+                "capteurs": [
+                    "T1",
+                    "T2",
+                    "T3"
+                ],
+                "puissance_W": 4.0
+            }
+        ]
+    }
+}

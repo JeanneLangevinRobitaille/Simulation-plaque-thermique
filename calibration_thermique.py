@@ -11,7 +11,11 @@ import pandas as pd
 from scipy.optimize import minimize
 
 REPO_ROOT = Path(__file__).resolve().parent
-DATA_DIR = REPO_ROOT / "test de puissance à résistance perturbation"
+DEFAULT_DATA_DIR_CANDIDATES = (
+    REPO_ROOT / "TestsAndData" / "test de puissance à résistance perturbation",
+    REPO_ROOT / "test de puissance à résistance perturbation",
+)
+DATA_DIR = next((path for path in DEFAULT_DATA_DIR_CANDIDATES if path.exists()), DEFAULT_DATA_DIR_CANDIDATES[0])
 OUTPUT_FILE = REPO_ROOT / "parametres_calibres_perturbation.json"
 
 # Géométrie et propriétés nominales utilisées dans le simulateur principal.
@@ -66,7 +70,26 @@ def _normalize_name(name: str) -> str:
     )
 
 
+def _resolve_data_dir(data_dir: Path) -> Path:
+    candidates = [
+        data_dir,
+        REPO_ROOT / "TestsAndData" / data_dir.name,
+        REPO_ROOT / data_dir.name,
+    ]
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+
+    searched = "\n  - ".join(str(path) for path in candidates)
+    raise FileNotFoundError(
+        "Aucun dossier de données valide n'a été trouvé. Emplacements vérifiés :\n"
+        f"  - {searched}"
+    )
+
+
 def _match_csv_files(data_dir: Path) -> list[tuple[Path, float]]:
+    data_dir = _resolve_data_dir(data_dir)
     csv_files = [path for path in data_dir.glob("*.csv") if path.is_file()]
     matches: list[tuple[Path, float]] = []
 
@@ -220,8 +243,8 @@ def calibrate_from_step_files(data_dir: Path = DATA_DIR) -> dict:
 
     baseline = {
         "coeff_convection_h": BASE_PARAMS["coeff_convection_h"],
-        "facteur_couplage_perturbation": 1.0,
-        "constante_temps_perturbation_s": 0.0,
+        "facteur_couplage": 1.0,
+        "tau_perturbation_s": 0.0,
     }
 
     def objective(vector: np.ndarray) -> float:
@@ -246,21 +269,21 @@ def calibrate_from_step_files(data_dir: Path = DATA_DIR) -> dict:
         options={"maxiter": 18},
     )
 
-    best = {
+    best_vector = {
         "coeff_convection_h": float(resultat.x[0]),
-        "facteur_couplage_perturbation": float(resultat.x[1]),
-        "constante_temps_perturbation_s": float(resultat.x[2]),
+        "facteur_couplage": float(resultat.x[1]),
+        "tau_perturbation_s": float(resultat.x[2]),
     }
 
     rapport = {
         "success": bool(resultat.success),
         "message": str(resultat.message),
         "rmse_avant_C": evaluate_rmse(experiments, **baseline),
-        "rmse_apres_C": evaluate_rmse(experiments, **best),
+        "rmse_apres_C": evaluate_rmse(experiments, **best_vector),
         "parametres": {
-            "coeff_convection_h": round(best["coeff_convection_h"], 8),
-            "facteur_couplage_perturbation": round(best["facteur_couplage_perturbation"], 3),
-            "constante_temps_perturbation_s": round(best["constante_temps_perturbation_s"], 2),
+            "coeff_convection_h": round(best_vector["coeff_convection_h"], 8),
+            "facteur_couplage_perturbation": round(best_vector["facteur_couplage"], 3),
+            "constante_temps_perturbation_s": round(best_vector["tau_perturbation_s"], 2),
         },
         "fichiers_utilises": [exp.name for exp in experiments],
     }

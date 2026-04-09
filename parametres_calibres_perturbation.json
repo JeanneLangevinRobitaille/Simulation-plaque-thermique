@@ -1,24 +1,24 @@
 {
     "parametres": {
-        "coeff_convection_h": 3.15e-05,
-        "facteur_couplage_perturbation": 0.85,
-        "constante_temps_perturbation_s": 8.0,
-        "temperature_ambiante_C": 25.0
+        "coeff_convection_h": 5.353e-05,
+        "facteur_couplage_perturbation": 0.3,
+        "constante_temps_perturbation_s": 21.29
     },
     "calibration": {
-        "source": "Ajustement basé sur les essais d'échelons de la résistance de perturbation disponibles dans le repo.",
+        "success": false,
+        "message": "STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT",
+        "rmse_avant_C": 20.58517481430092,
+        "rmse_apres_C": 1.8118174953416923,
+        "parametres": {
+            "coeff_convection_h": 5.353e-05,
+            "facteur_couplage_perturbation": 0.3,
+            "constante_temps_perturbation_s": 21.29
+        },
         "fichiers_utilises": [
             "mesure (puissance 0.81W et 4.5 V).csv",
             "test de puissance (1.44 W) à résistance de perturbation.csv",
             "test puissance de 2.56 W (8V) à résist. perturbation.csv",
             "test puissance perturbation à 4W et 10V.csv"
-        ],
-        "rmse_avant_C": 2.622,
-        "rmse_apres_C": 1.404,
-        "notes": [
-            "Le chauffage perturbateur réel ne transmet pas 100 % de V^2/R à la plaque.",
-            "Une constante de temps d'environ 8 s améliore la montée transitoire.",
-            "Les données disponibles calibrent surtout la branche perturbation; la branche TEC demanderait des essais dédiés."
         ]
     }
 }
