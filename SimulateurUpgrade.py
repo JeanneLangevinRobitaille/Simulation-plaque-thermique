@@ -699,11 +699,21 @@ class MainWindow(QMainWindow):
             "Paramètres de la plaque": {"longueur_y_mm": 117.5, "largeur_x_mm": 61.5, "epaisseur_mm": 1.7},
             "Paramètres de la simulation": {"temps_total_s": 150.0, "resolution_grille": 50.0, "temperature_ambiante_C": 20.0, "intervalle_affichage": 1.0},
             "Paramètres physiques": {"diffusivite_alpha": 97.0, "masse_volumique_rho": 2.7e-3, "chaleur_massique_cp": 0.9, "coeff_convection_h": 3.2e-5},
-            "Coordonnées d'intérêt": {
-                "pos_x_tec_mm": 0.0, "pos_y_tec_mm": 5.0,
-                "pos_x_capteur_1_mm": 0.0, "pos_y_capteur_1_mm": 14.57,
-                "pos_x_capteur_2_mm": 0.0, "pos_y_capteur_2_mm": 59.42,
-                "pos_x_capteur_3_mm": 0.0, "pos_y_capteur_3_mm": 103.79
+            "Position TEC": {
+                "pos_x_tec_mm": 0.0,
+                "pos_y_tec_mm": 5.0,
+            },
+            "Capteur 1": {
+                "pos_x_capteur_1_mm": 0.0,
+                "pos_y_capteur_1_mm": 14.57,
+            },
+            "Capteur 2": {
+                "pos_x_capteur_2_mm": 0.0,
+                "pos_y_capteur_2_mm": 59.42,
+            },
+            "Capteur 3": {
+                "pos_x_capteur_3_mm": 0.0,
+                "pos_y_capteur_3_mm": 103.79,
             },
             "Perturbation (Résistance)": {
                 "pos_x_resistance_mm": 0.0, "pos_y_resistance_mm": 38.0,
@@ -711,6 +721,35 @@ class MainWindow(QMainWindow):
                 "facteur_couplage_perturbation": 0.85,
                 "constante_temps_perturbation_s": 8.0
             }
+        }
+
+        libelles_parametres = {
+            "puissance_tec_W": "Puissance TEC (W)",
+            "longueur_y_mm": "Longueur Y (mm)",
+            "largeur_x_mm": "Largeur X (mm)",
+            "epaisseur_mm": "Épaisseur (mm)",
+            "temps_total_s": "Temps total (s)",
+            "resolution_grille": "Résolution grille",
+            "temperature_ambiante_C": "Température ambiante (°C)",
+            "intervalle_affichage": "Intervalle affichage",
+            "diffusivite_alpha": "Diffusivité alpha",
+            "masse_volumique_rho": "Masse volumique rho",
+            "chaleur_massique_cp": "Chaleur massique cp",
+            "coeff_convection_h": "Coeff. convection h",
+            "pos_x_tec_mm": "Position X (mm)",
+            "pos_y_tec_mm": "Position Y (mm)",
+            "pos_x_capteur_1_mm": "Position X (mm)",
+            "pos_y_capteur_1_mm": "Position Y (mm)",
+            "pos_x_capteur_2_mm": "Position X (mm)",
+            "pos_y_capteur_2_mm": "Position Y (mm)",
+            "pos_x_capteur_3_mm": "Position X (mm)",
+            "pos_y_capteur_3_mm": "Position Y (mm)",
+            "pos_x_resistance_mm": "Position X (mm)",
+            "pos_y_resistance_mm": "Position Y (mm)",
+            "valeur_resistance_ohm": "Résistance (ohm)",
+            "tension_resistance_V": "Tension résistance (V)",
+            "facteur_couplage_perturbation": "Facteur couplage",
+            "constante_temps_perturbation_s": "Constante temps (s)",
         }
 
         for nom_section, variables in definition_parametres.items():
@@ -723,7 +762,7 @@ class MainWindow(QMainWindow):
                 layout_param = QVBoxLayout()
                 layout_param.setSpacing(6)
                 
-                texte_label = cle_variable.replace("_", " ").title()
+                texte_label = libelles_parametres.get(cle_variable, cle_variable.replace("_", " ").title())
                 label_param = QLabel(texte_label)
                 
                 plages = {
@@ -1726,7 +1765,7 @@ class MainWindow(QMainWindow):
 
         if self.vue_2d_active:
             fov = 1.0
-            distance = max(longueur_ref * 1.2 / max(np.tan(np.radians(fov / 2.0)), 1e-3), longueur_ref * 4.0)
+            distance = max(longueur_ref * 1.28 / max(np.tan(np.radians(fov / 2.0)), 1e-3), longueur_ref * 4.2)
             self.camera_centre_z = 0.0
             if hasattr(self.vue_3d, "lock_2d_interaction"):
                 self.vue_3d.lock_2d_interaction = True
@@ -1862,7 +1901,7 @@ class MainWindow(QMainWindow):
         centre_z_cible = 0.5 * (z_min + z_max)
         amplitude_z = max(1.0, z_max - z_min)
         longueur_ref = max(self.params_actuels["largeur_x_mm"], self.params_actuels["longueur_y_mm"])
-        distance_cible = max(self.camera_distance_initiale, longueur_ref * 1.15 + amplitude_z * 2.4)
+        distance_cible = max(self.camera_distance_initiale, longueur_ref * 1.22 + amplitude_z * 2.6)
 
         self.camera_centre_z = (0.85 * self.camera_centre_z) + (0.15 * centre_z_cible)
         self.camera_distance_actuelle = (0.88 * self.camera_distance_actuelle) + (0.12 * distance_cible)
