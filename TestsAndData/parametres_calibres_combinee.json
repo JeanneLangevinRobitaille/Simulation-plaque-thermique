@@ -1,31 +1,41 @@
 {
     "parametres": {
-        "diffusivite_alpha": 98.444,
-        "coeff_convection_h": 4.04e-05,
-        "chaleur_massique_cp": 1.7157,
-        "facteur_couplage_perturbation": 0.275,
-        "constante_temps_perturbation_s": 9.25,
+        "diffusivite_alpha": 101.85,
+        "coeff_convection_h": 5.621e-05,
+        "chaleur_massique_cp": 1.35,
+        "facteur_couplage_perturbation": 1.0,
+        "constante_temps_perturbation_s": 8.0,
         "facteur_couplage_tec": 1.0,
-        "constante_temps_tec_s": 6.0
+        "constante_temps_tec_s": 6.0,
+        "degre_fit_pwm": 3,
+        "coef_pwm_a0": 0.01734031,
+        "coef_pwm_a1": 0.1406312,
+        "coef_pwm_a2": 0.00099478,
+        "coef_pwm_a3": 1.70328e-05
     },
     "calibration": {
         "success": true,
         "optimiseur_reussi": true,
-        "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+        "message": "CONVERGENCE: NORM OF PROJECTED GRADIENT <= PGTOL",
         "branches_utilisees": [
             "perturbation"
         ],
         "nombre_essais": 4,
         "rmse_avant_C": 19.455238569373677,
-        "rmse_apres_C": 1.0489760209352532,
+        "rmse_apres_C": 16.683167455172782,
         "parametres": {
-            "diffusivite_alpha": 98.444,
-            "coeff_convection_h": 4.04e-05,
-            "chaleur_massique_cp": 1.7157,
-            "facteur_couplage_perturbation": 0.275,
-            "constante_temps_perturbation_s": 9.25,
+            "diffusivite_alpha": 101.85,
+            "coeff_convection_h": 5.621e-05,
+            "chaleur_massique_cp": 1.35,
+            "facteur_couplage_perturbation": 1.0,
+            "constante_temps_perturbation_s": 8.0,
             "facteur_couplage_tec": 1.0,
-            "constante_temps_tec_s": 6.0
+            "constante_temps_tec_s": 6.0,
+            "degre_fit_pwm": 3,
+            "coef_pwm_a0": 0.01734031,
+            "coef_pwm_a1": 0.1406312,
+            "coef_pwm_a2": 0.00099478,
+            "coef_pwm_a3": 1.70328e-05
         },
         "essais": [
             {
@@ -38,11 +48,11 @@
                     "T3"
                 ],
                 "puissance_W": 0.81,
-                "rmse_C": 0.516,
+                "rmse_C": 5.748,
                 "rmse_capteurs_C": {
-                    "T1": 0.785,
-                    "T2": 0.332,
-                    "T3": 0.267
+                    "T1": 6.347,
+                    "T2": 5.919,
+                    "T3": 4.878
                 }
             },
             {
@@ -55,11 +65,11 @@
                     "T3"
                 ],
                 "puissance_W": 1.44,
-                "rmse_C": 1.686,
+                "rmse_C": 10.188,
                 "rmse_capteurs_C": {
-                    "T1": 2.771,
-                    "T2": 0.648,
-                    "T3": 0.658
+                    "T1": 12.709,
+                    "T2": 9.474,
+                    "T3": 7.754
                 }
             },
             {
@@ -72,11 +82,11 @@
                     "T3"
                 ],
                 "puissance_W": 2.56,
-                "rmse_C": 0.955,
+                "rmse_C": 16.76,
                 "rmse_capteurs_C": {
-                    "T1": 0.717,
-                    "T2": 1.158,
-                    "T3": 0.939
+                    "T1": 17.898,
+                    "T2": 17.409,
+                    "T3": 14.807
                 }
             },
             {
@@ -89,11 +99,11 @@
                     "T3"
                 ],
                 "puissance_W": 4.0,
-                "rmse_C": 0.616,
+                "rmse_C": 26.374,
                 "rmse_capteurs_C": {
-                    "T1": 0.497,
-                    "T2": 0.51,
-                    "T3": 0.794
+                    "T1": 27.891,
+                    "T2": 28.114,
+                    "T3": 22.77
                 }
             }
         ]
