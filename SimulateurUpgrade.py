@@ -4,6 +4,7 @@ import time
 import ctypes
 from ctypes import wintypes
 import traceback
+from pathlib import Path
 from threading import Lock
 
 import numpy as np
@@ -17,6 +18,9 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
+
+AUTO_CALIBRATION_JSON = Path(__file__).resolve().parent / "TestsAndData" / "parametres_calibres_combinee.json"
+AUTO_CALIBRATION_CHECK_INTERVAL_MS = 2000
 
 # ==============================================================================
 # WIDGET PERSONNALISÉ : Le Slider "à la Desmos"
@@ -92,6 +96,29 @@ class SliderWithValue(QWidget):
     
     def setValue(self, val):
         self.slider_value = int((val - self.min_val) / (self.max_val - self.min_val) * 10000)
+        self.slider.blockSignals(True)
+        self.slider.setValue(self.slider_value)
+        self.slider.blockSignals(False)
+        self.update_value_label()
+
+    def configure_range(self, min_val=None, max_val=None, decimals=None, scientific=None, current_val=None):
+        valeur_courante = self.value() if current_val is None else float(current_val)
+
+        if min_val is not None:
+            self.min_val = float(min_val)
+        if max_val is not None:
+            self.max_val = float(max_val)
+        if decimals is not None:
+            self.decimals = int(decimals)
+        if scientific is not None:
+            self.scientific = bool(scientific)
+
+        if np.isclose(self.max_val, self.min_val):
+            self.max_val = self.min_val + 1.0
+
+        valeur_courante = float(np.clip(valeur_courante, self.min_val, self.max_val))
+        self.slider_value = int((valeur_courante - self.min_val) / (self.max_val - self.min_val) * 10000)
+
         self.slider.blockSignals(True)
         self.slider.setValue(self.slider_value)
         self.slider.blockSignals(False)
@@ -289,6 +316,130 @@ def calculer_bornes_temperature_fixes(params):
     )
     return temp_min, temp_max
 
+
+def normaliser_mode_commande_tec(mode):
+    mode_normalise = str(mode).strip().lower()
+    return "pwm" if "pwm" in mode_normalise else "watt"
+
+
+def normaliser_degre_fit_pwm(degre):
+    try:
+        degre_normalise = int(round(float(degre)))
+    except (TypeError, ValueError):
+        return 3
+    return int(np.clip(degre_normalise, 1, 3))
+
+
+def ajuster_courbe_pwm_temperature_stable(paliers_pwm, temperatures_stables_C, degre=2, temperature_ambiante_C=None):
+    """Ajuste un modèle indépendant PWM -> ΔT stable en boucle ouverte.
+
+    Ce fit reste séparé des coefficients physiques calibrés (`alpha`, `rho`, `cp`, `h`).
+    Il sert uniquement à dériver une loi de commande indépendante entre un pourcentage
+    de PWM et l'effet thermique observé à l'état stationnaire.
+
+    Le degré peut être 1, 2 ou 3; on peut donc démarrer avec l'équation cubique
+    déjà identifiée, puis simplifier ensuite vers un modèle plus compact si désiré.
+    """
+    pwm = np.asarray(paliers_pwm, dtype=float)
+    temperatures = np.asarray(temperatures_stables_C, dtype=float)
+
+    if pwm.size != temperatures.size:
+        raise ValueError("Les vecteurs PWM et température doivent avoir la même taille.")
+    if pwm.size < 2:
+        raise ValueError("Au moins deux paliers sont requis pour calculer un fit.")
+
+    degre_utilise = min(normaliser_degre_fit_pwm(degre), pwm.size - 1)
+    if temperature_ambiante_C is None:
+        temperature_ambiante_C = float(np.min(temperatures))
+
+    delta_temp = temperatures - float(temperature_ambiante_C)
+    coefficients_desc = np.polyfit(np.abs(pwm), delta_temp, degre_utilise)
+    coefficients = coefficients_desc[::-1]
+
+    return {
+        "temperature_ambiante_C": float(temperature_ambiante_C),
+        "degre_fit_pwm": int(degre_utilise),
+        "coef_pwm_a0": float(coefficients[0]),
+        "coef_pwm_a1": float(coefficients[1]) if len(coefficients) > 1 else 0.0,
+        "coef_pwm_a2": float(coefficients[2]) if len(coefficients) > 2 else 0.0,
+        "coef_pwm_a3": float(coefficients[3]) if len(coefficients) > 3 else 0.0,
+    }
+
+
+def convertir_pwm_vers_puissance(pwm_percent, params):
+    pwm_signe = float(np.clip(pwm_percent, -100.0, 100.0))
+    amplitude = abs(pwm_signe)
+    degre = normaliser_degre_fit_pwm(params.get("degre_fit_pwm", 3))
+
+    a0 = float(params.get("coef_pwm_a0", 1.734031e-02))
+    a1 = float(params.get("coef_pwm_a1", 1.406312e-01))
+    a2 = float(params.get("coef_pwm_a2", 9.947817e-04)) if degre >= 2 else 0.0
+    a3 = float(params.get("coef_pwm_a3", 1.703277e-05)) if degre >= 3 else 0.0
+
+    puissance = a0 + (a1 * amplitude)
+    if degre >= 2:
+        puissance += a2 * (amplitude ** 2)
+    if degre >= 3:
+        puissance += a3 * (amplitude ** 3)
+
+    puissance = max(0.0, puissance)
+    return float(np.sign(pwm_signe) * puissance)
+
+
+def convertir_puissance_vers_pwm(puissance_w, params):
+    puissance_signee = float(puissance_w)
+    puissance = abs(puissance_signee)
+    if puissance <= 0.0:
+        return 0.0
+
+    signe = -1.0 if puissance_signee < 0 else 1.0
+    degre = normaliser_degre_fit_pwm(params.get("degre_fit_pwm", 3))
+
+    a0 = float(params.get("coef_pwm_a0", 1.734031e-02))
+    a1 = float(params.get("coef_pwm_a1", 1.406312e-01))
+    a2 = float(params.get("coef_pwm_a2", 9.947817e-04)) if degre >= 2 else 0.0
+    a3 = float(params.get("coef_pwm_a3", 1.703277e-05)) if degre >= 3 else 0.0
+
+    if degre == 1 or (abs(a2) < 1e-12 and abs(a3) < 1e-12):
+        amplitude = 0.0 if abs(a1) < 1e-12 else (puissance - a0) / a1
+    elif degre == 2 or abs(a3) < 1e-12:
+        discriminant = max(0.0, (a1 ** 2) - (4.0 * a2 * (a0 - puissance)))
+        racines = [
+            (-a1 + np.sqrt(discriminant)) / (2.0 * a2),
+            (-a1 - np.sqrt(discriminant)) / (2.0 * a2),
+        ]
+        candidats = [racine for racine in racines if racine >= 0.0]
+        amplitude = min(
+            candidats,
+            key=lambda racine: abs((a0 + a1 * racine + a2 * (racine ** 2)) - puissance),
+        ) if candidats else 0.0
+    else:
+        racines = np.roots([a3, a2, a1, a0 - puissance])
+        candidats = [
+            float(np.real(racine))
+            for racine in racines
+            if abs(np.imag(racine)) < 1e-8 and 0.0 <= float(np.real(racine)) <= 100.0
+        ]
+        if candidats:
+            amplitude = min(
+                candidats,
+                key=lambda racine: abs((a0 + a1 * racine + a2 * (racine ** 2) + a3 * (racine ** 3)) - puissance),
+            )
+        else:
+            grille = np.linspace(0.0, 100.0, 2001)
+            valeurs = a0 + a1 * grille + a2 * (grille ** 2) + a3 * (grille ** 3)
+            amplitude = float(grille[np.argmin(np.abs(valeurs - puissance))])
+
+    amplitude = float(np.clip(amplitude, 0.0, 100.0))
+    return signe * amplitude
+
+
+def convertir_commande_tec_vers_puissance(valeur_commande, params):
+    mode = normaliser_mode_commande_tec(params.get("mode_commande_tec", "watt"))
+    if mode == "pwm":
+        return convertir_pwm_vers_puissance(valeur_commande, params)
+    return float(valeur_commande)
+
 class StableGLViewWidget(gl.GLViewWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -347,17 +498,40 @@ class SimulationThread(QThread):
         self.tension_dynamique = float(data["tension_resistance_V"])
         self.puissance_dynamique = 0.0
 
-        # Calibration empirique issue des essais d'échelons de la résistance.
+        # Calibration empirique issue des essais d'échelons.
         self.facteur_couplage_perturbation = max(0.0, float(data.get("facteur_couplage_perturbation", 0.85)))
         self.constante_temps_perturbation_s = max(0.0, float(data.get("constante_temps_perturbation_s", 8.0)))
+        self.debut_perturbation_s = max(0.0, float(data.get("debut_perturbation_s", 0.0)))
+        self.duree_perturbation_s = max(0.0, float(data.get("duree_perturbation_s", float(data.get("temps_total_s", 150.0)))))
+        self.facteur_couplage_tec = max(0.0, float(data.get("facteur_couplage_tec", 0.60)))
+        self.constante_temps_tec_s = max(0.0, float(data.get("constante_temps_tec_s", 8.0)))
         self.puissance_resistance_effective = 0.0
+        self.puissance_tec_effective = 0.0
 
-    def modifier_parametres_controle(self, mode_pid_actif, nouvelle_puissance, nouvelle_consigne, nouvelle_tension):
+    def modifier_parametres_controle(
+        self,
+        mode_pid_actif,
+        nouvelle_puissance,
+        nouvelle_consigne,
+        nouvelle_tension,
+        nouveau_gain_tec=None,
+        nouvelle_tau_tec=None,
+        nouveau_debut_perturbation=None,
+        nouvelle_duree_perturbation=None,
+    ):
         with self._control_lock:
             self.mode_pid_actif = bool(mode_pid_actif)
             self.puissance_manuelle_voulue = float(nouvelle_puissance)
             self.consigne_voulue = float(nouvelle_consigne)
             self.tension_dynamique = float(nouvelle_tension)
+            if nouveau_gain_tec is not None:
+                self.facteur_couplage_tec = max(0.0, float(nouveau_gain_tec))
+            if nouvelle_tau_tec is not None:
+                self.constante_temps_tec_s = max(0.0, float(nouvelle_tau_tec))
+            if nouveau_debut_perturbation is not None:
+                self.debut_perturbation_s = max(0.0, float(nouveau_debut_perturbation))
+            if nouvelle_duree_perturbation is not None:
+                self.duree_perturbation_s = max(0.0, float(nouvelle_duree_perturbation))
 
     def obtenir_etat_controle(self):
         with self._control_lock:
@@ -366,6 +540,10 @@ class SimulationThread(QThread):
                 self.puissance_manuelle_voulue,
                 self.consigne_voulue,
                 self.tension_dynamique,
+                self.facteur_couplage_tec,
+                self.constante_temps_tec_s,
+                self.debut_perturbation_s,
+                self.duree_perturbation_s,
             )
 
     # --- NOUVEAU : Fonction Pause ---
@@ -487,7 +665,7 @@ class SimulationThread(QThread):
                 if not self.en_cours_d_execution:
                     break
 
-                mode_pid_actif, puissance_manuelle, consigne, tension_dynamique = self.obtenir_etat_controle()
+                mode_pid_actif, puissance_manuelle, consigne, tension_dynamique, facteur_couplage_tec, constante_temps_tec_s, debut_perturbation_s, duree_perturbation_s = self.obtenir_etat_controle()
 
                 if mode_pid_actif:
                     if temps_ecoule >= prochain_temps_pid:
@@ -516,25 +694,16 @@ class SimulationThread(QThread):
                         else:
                             self.pwmActuel = pwm_demande
 
-                        pwm_percent_abs = (abs(self.pwmActuel) / 1023.0) * 100.0
-                        puissance_w = (((1.703277e-05 * pwm_percent_abs + 9.947817e-04) * pwm_percent_abs) + 1.406312e-01) * pwm_percent_abs + 1.734031e-02
-
-                        if self.pwmActuel < 0:
-                            self.puissance_dynamique = -puissance_w
-                        elif self.pwmActuel > 0:
-                            self.puissance_dynamique = puissance_w
-                        else:
-                            self.puissance_dynamique = 0.0
+                        pwm_percent_signe = (self.pwmActuel / 1023.0) * 100.0
+                        self.puissance_dynamique = convertir_pwm_vers_puissance(pwm_percent_signe, params)
 
                         prochain_temps_pid += periode_pid
                 else:
                     self.puissance_dynamique = puissance_manuelle
 
                 tension_dynamique = max(0.0, tension_dynamique)
-                puissance_volumique_tec = self.puissance_dynamique / volume_module_tec
-                ajout_temp_tec = (puissance_volumique_tec * pas_temps) / (params["masse_volumique_rho"] * params["chaleur_massique_cp"])
+                puissance_tec_cible = facteur_couplage_tec * self.puissance_dynamique
 
-                puissance_resistance_cible = self.facteur_couplage_perturbation * (tension_dynamique**2) / params["valeur_resistance_ohm"]
                 denominateur_resistance = (
                     params["masse_volumique_rho"] * params["chaleur_massique_cp"] *
                     params["epaisseur_mm"] * pas_x * pas_y
@@ -543,6 +712,24 @@ class SimulationThread(QThread):
                 for _ in range(calculs_par_actualisation):
                     if temps_ecoule >= params["temps_total_s"]:
                         break
+
+                    if constante_temps_tec_s > 0:
+                        coeff_lag_tec = min(1.0, pas_temps / constante_temps_tec_s)
+                        self.puissance_tec_effective += (
+                            puissance_tec_cible - self.puissance_tec_effective
+                        ) * coeff_lag_tec
+                    else:
+                        self.puissance_tec_effective = puissance_tec_cible
+
+                    puissance_volumique_tec = self.puissance_tec_effective / volume_module_tec
+                    ajout_temp_tec = (puissance_volumique_tec * pas_temps) / (params["masse_volumique_rho"] * params["chaleur_massique_cp"])
+
+                    perturbation_active = (
+                        duree_perturbation_s > 0.0
+                        and debut_perturbation_s <= temps_ecoule < (debut_perturbation_s + duree_perturbation_s)
+                    )
+                    tension_resistance_active = tension_dynamique if perturbation_active else 0.0
+                    puissance_resistance_cible = self.facteur_couplage_perturbation * (tension_resistance_active**2) / params["valeur_resistance_ohm"]
 
                     if self.constante_temps_perturbation_s > 0:
                         coeff_lag_resistance = min(1.0, pas_temps / self.constante_temps_perturbation_s)
@@ -692,7 +879,11 @@ class MainWindow(QMainWindow):
         self.layout_formulaire.setSpacing(15) 
         
         self.champs_saisie = {}
+        self.labels_parametres = {}
         self.consigne_fixee_C = 35.0
+        self._mode_commande_tec_ui = "watt"
+        self.chemin_calibration_auto = AUTO_CALIBRATION_JSON
+        self._horodatage_calibration_auto = None
         
         definition_parametres = {
             "Contrôle Thermique": {"puissance_tec_W": 1.0},
@@ -718,13 +909,28 @@ class MainWindow(QMainWindow):
             "Perturbation (Résistance)": {
                 "pos_x_resistance_mm": 0.0, "pos_y_resistance_mm": 38.0,
                 "valeur_resistance_ohm": 25.0, "tension_resistance_V": 1.0,
+                "debut_perturbation_s": 0.0, "duree_perturbation_s": 150.0,
                 "facteur_couplage_perturbation": 0.85,
                 "constante_temps_perturbation_s": 8.0
-            }
+            },
+            "Commande TEC / Fit PWM": {
+                "facteur_couplage_tec": 0.60,
+                "constante_temps_tec_s": 8.0,
+                "coef_pwm_a0": 1.734031e-02,
+                "coef_pwm_a1": 1.406312e-01,
+                "coef_pwm_a2": 9.947817e-04,
+                "coef_pwm_a3": 1.703277e-05,
+            },
         }
 
         libelles_parametres = {
             "puissance_tec_W": "Puissance TEC (W)",
+            "facteur_couplage_tec": "Gain TEC",
+            "constante_temps_tec_s": "Constante temps TEC (s)",
+            "coef_pwm_a0": "Fit PWM→W : a0",
+            "coef_pwm_a1": "Fit PWM→W : a1",
+            "coef_pwm_a2": "Fit PWM→W : a2",
+            "coef_pwm_a3": "Fit PWM→W : a3",
             "longueur_y_mm": "Longueur Y (mm)",
             "largeur_x_mm": "Largeur X (mm)",
             "epaisseur_mm": "Épaisseur (mm)",
@@ -748,6 +954,8 @@ class MainWindow(QMainWindow):
             "pos_y_resistance_mm": "Position Y (mm)",
             "valeur_resistance_ohm": "Résistance (ohm)",
             "tension_resistance_V": "Tension résistance (V)",
+            "debut_perturbation_s": "Début perturbation (s)",
+            "duree_perturbation_s": "Durée perturbation (s)",
             "facteur_couplage_perturbation": "Facteur couplage",
             "constante_temps_perturbation_s": "Constante temps (s)",
         }
@@ -764,9 +972,12 @@ class MainWindow(QMainWindow):
                 
                 texte_label = libelles_parametres.get(cle_variable, cle_variable.replace("_", " ").title())
                 label_param = QLabel(texte_label)
+                self.labels_parametres[cle_variable] = label_param
                 
                 plages = {
                     "puissance_tec_W": (-10, 10), "consigne_C": (-20, 100),
+                    "facteur_couplage_tec": (0, 2), "constante_temps_tec_s": (0, 80),
+                    "coef_pwm_a0": (-2, 2), "coef_pwm_a1": (-0.2, 0.2), "coef_pwm_a2": (-0.01, 0.01), "coef_pwm_a3": (-0.001, 0.001),
                     "longueur_y_mm": (50, 200), "largeur_x_mm": (30, 150),
                     "epaisseur_mm": (0.1, 5), 
                     "temps_total_s": (10, 1000), "resolution_grille": (10, 100),
@@ -779,12 +990,18 @@ class MainWindow(QMainWindow):
                     "pos_x_capteur_3_mm": (-50, 50), "pos_y_capteur_3_mm": (0, 120),
                     "pos_x_resistance_mm": (-50, 50), "pos_y_resistance_mm": (0, 120),
                     "valeur_resistance_ohm": (1, 100), "tension_resistance_V": (0, 10),
+                    "debut_perturbation_s": (0, 1000), "duree_perturbation_s": (0, 1000),
                     "facteur_couplage_perturbation": (0, 2), "constante_temps_perturbation_s": (0, 60)
                 }
                 
                 min_v, max_v = plages.get(cle_variable, (-1000, 1000))
-                utiliser_scientifique = "e" in str(valeur_defaut).lower()
-                decimales = 3 if utiliser_scientifique else (1 if cle_variable.endswith("_mm") or "capteur" in cle_variable or "tec" in cle_variable or "resistance" in cle_variable or "consigne" in cle_variable else 2)
+                utiliser_scientifique = ("e" in str(valeur_defaut).lower()) or (cle_variable in {"coef_pwm_a2", "coef_pwm_a3"})
+                if cle_variable in {"coef_pwm_a2", "coef_pwm_a3"}:
+                    decimales = 3
+                elif cle_variable in {"coef_pwm_a0", "coef_pwm_a1"}:
+                    decimales = 4
+                else:
+                    decimales = 3 if utiliser_scientifique else (1 if cle_variable.endswith("_mm") or "capteur" in cle_variable or "tec" in cle_variable or "resistance" in cle_variable or "consigne" in cle_variable else 2)
                 
                 slider_widget = SliderWithValue(min_v, max_v, float(valeur_defaut), decimals=decimales, scientific=utiliser_scientifique)
                 self.champs_saisie[cle_variable] = slider_widget
@@ -801,12 +1018,19 @@ class MainWindow(QMainWindow):
 
         # Connexion des sliders en direct
         self.champs_saisie["puissance_tec_W"].slider.valueChanged.connect(self.actualiser_controle_live)
-        self.champs_saisie["tension_resistance_V"].slider.valueChanged.connect(self.actualiser_controle_live) # NOUVEAU: Écoute de la tension
         self.champs_saisie["puissance_tec_W"].value_input.editingFinished.connect(self.actualiser_controle_live)
-        self.champs_saisie["tension_resistance_V"].value_input.editingFinished.connect(self.actualiser_controle_live)
+        for cle_perturb in ("tension_resistance_V", "debut_perturbation_s", "duree_perturbation_s"):
+            self.champs_saisie[cle_perturb].slider.valueChanged.connect(self.actualiser_controle_live)
+            self.champs_saisie[cle_perturb].value_input.editingFinished.connect(self.actualiser_controle_live)
         for champ in self.champs_saisie.values():
             champ.slider.valueChanged.connect(self.mettre_a_jour_indicateur_stabilite)
             champ.value_input.editingFinished.connect(self.mettre_a_jour_indicateur_stabilite)
+        for cle_fit in ("puissance_tec_W", "facteur_couplage_tec", "constante_temps_tec_s", "coef_pwm_a0", "coef_pwm_a1", "coef_pwm_a2", "coef_pwm_a3"):
+            self.champs_saisie[cle_fit].slider.valueChanged.connect(self.actualiser_resume_commande_tec)
+            self.champs_saisie[cle_fit].value_input.editingFinished.connect(self.actualiser_resume_commande_tec)
+            if cle_fit != "puissance_tec_W":
+                self.champs_saisie[cle_fit].slider.valueChanged.connect(self.actualiser_controle_live)
+                self.champs_saisie[cle_fit].value_input.editingFinished.connect(self.actualiser_controle_live)
         
         cadre_controles = QFrame()
         cadre_controles.setObjectName("ControlsFrame")
@@ -821,6 +1045,31 @@ class MainWindow(QMainWindow):
         self.bouton_sauvegarder_chemin.clicked.connect(self.choisir_chemin_sauvegarde)
         ligne_boutons_fichiers.addWidget(self.bouton_importer)
         ligne_boutons_fichiers.addWidget(self.bouton_sauvegarder_chemin)
+
+        ligne_mode_commande = QHBoxLayout()
+        ligne_mode_commande.setSpacing(8)
+
+        label_mode_commande = QLabel("Commande TEC")
+        label_mode_commande.setStyleSheet("font-weight: bold; color: #7DD3FC;")
+        ligne_mode_commande.addWidget(label_mode_commande)
+
+        self.combo_mode_commande_tec = QComboBox()
+        self.combo_mode_commande_tec.addItem("Watts (direct)", "watt")
+        self.combo_mode_commande_tec.addItem("PWM (%) via fit", "pwm")
+        self.combo_mode_commande_tec.setStyleSheet("QComboBox { background-color: #1E293B; color: #38BDF8; border: 1px solid #334155; border-radius: 4px; padding: 4px 8px; }")
+        ligne_mode_commande.addWidget(self.combo_mode_commande_tec, 1)
+
+        self.combo_degre_fit_pwm = QComboBox()
+        self.combo_degre_fit_pwm.addItem("1er degré", 1)
+        self.combo_degre_fit_pwm.addItem("2e degré", 2)
+        self.combo_degre_fit_pwm.addItem("3e degré (équation actuelle)", 3)
+        self.combo_degre_fit_pwm.setCurrentIndex(2)
+        self.combo_degre_fit_pwm.setStyleSheet("QComboBox { background-color: #1E293B; color: #FDE68A; border: 1px solid #334155; border-radius: 4px; padding: 4px 8px; }")
+        ligne_mode_commande.addWidget(self.combo_degre_fit_pwm)
+
+        self.combo_mode_commande_tec.currentIndexChanged.connect(self.actualiser_mode_commande_tec)
+        self.combo_degre_fit_pwm.currentIndexChanged.connect(self.actualiser_resume_commande_tec)
+        self.combo_degre_fit_pwm.currentIndexChanged.connect(self.actualiser_controle_live)
 
         ligne_boutons_simulation = QHBoxLayout()
         self.bouton_demarrer = QPushButton("DÉMARRER")
@@ -841,7 +1090,6 @@ class MainWindow(QMainWindow):
         ligne_boutons_simulation.addWidget(self.bouton_pause)
         ligne_boutons_simulation.addWidget(self.bouton_arreter)
         
-        # --- NOUVEAU: Bouton QuickSave ---
         self.bouton_quicksave = QPushButton("QUICKSAVE (Pause requise)")
         self.bouton_quicksave.setObjectName("btn_quicksave")
         self.bouton_quicksave.clicked.connect(self.quicksave_instantane)
@@ -857,12 +1105,21 @@ class MainWindow(QMainWindow):
             "background-color: rgba(15, 23, 42, 0.75); border: 1px solid #334155; "
             "border-radius: 6px; padding: 8px; color: #CBD5E1;"
         )
+
+        self.label_resume_commande_tec = QLabel()
+        self.label_resume_commande_tec.setWordWrap(True)
+        self.label_resume_commande_tec.setStyleSheet(
+            "background-color: rgba(15, 23, 42, 0.55); border: 1px solid #475569; "
+            "border-radius: 6px; padding: 8px; color: #C4B5FD; font-size: 11px;"
+        )
         
         layout_controles.addLayout(ligne_boutons_fichiers)
+        layout_controles.addLayout(ligne_mode_commande)
         layout_controles.addLayout(ligne_boutons_simulation)
-        layout_controles.addWidget(self.bouton_quicksave) # Ajout du QuickSave
+        layout_controles.addWidget(self.bouton_quicksave)
         layout_controles.addWidget(self.barre_progression)
         layout_controles.addWidget(self.label_stabilite)
+        layout_controles.addWidget(self.label_resume_commande_tec)
         layout_gauche.addWidget(cadre_controles)
 
         # === PANNEAU DROIT (Graphiques) ===
@@ -1122,6 +1379,8 @@ class MainWindow(QMainWindow):
         separateur_principal.addWidget(panneau_gauche)
         separateur_principal.addWidget(panneau_droit)
         separateur_principal.setSizes([380, 1120])
+        self.actualiser_mode_commande_tec(initialisation=True)
+        self.actualiser_resume_commande_tec()
         self.mettre_a_jour_indicateur_stabilite()
         self.mettre_a_jour_axes_3d_stables()
         self.mettre_a_jour_legende_axes_3d()
@@ -1131,10 +1390,96 @@ class MainWindow(QMainWindow):
         self.timer_ressources.start(1000)
         self.mettre_a_jour_ressources_systeme()
 
+        self.timer_calibration_auto = QTimer(self)
+        self.timer_calibration_auto.timeout.connect(self.verifier_mise_a_jour_calibration_auto)
+        self.timer_calibration_auto.start(AUTO_CALIBRATION_CHECK_INTERVAL_MS)
+        self.charger_calibration_auto(force=True, silencieux=True)
+
     def recuperer_parametres_interface(self):
         params = {cle: champ.value() for cle, champ in self.champs_saisie.items()}
         params["consigne_C"] = self.consigne_fixee_C
+        params["mode_commande_tec"] = self.obtenir_mode_commande_tec()
+        params["degre_fit_pwm"] = self.obtenir_degre_fit_pwm()
+        params["commande_tec_valeur"] = float(params["puissance_tec_W"])
+        params["puissance_tec_W"] = convertir_commande_tec_vers_puissance(params["commande_tec_valeur"], params)
+        params["pwm_tec_pct"] = convertir_puissance_vers_pwm(params["puissance_tec_W"], params)
         return params
+
+    def obtenir_mode_commande_tec(self):
+        if hasattr(self, "combo_mode_commande_tec"):
+            return normaliser_mode_commande_tec(self.combo_mode_commande_tec.currentData())
+        return "watt"
+
+    def obtenir_degre_fit_pwm(self):
+        if hasattr(self, "combo_degre_fit_pwm"):
+            return normaliser_degre_fit_pwm(self.combo_degre_fit_pwm.currentData())
+        return 2
+
+    def actualiser_mode_commande_tec(self, *_args, initialisation=False):
+        mode_nouveau = self.obtenir_mode_commande_tec()
+        mode_ancien = getattr(self, "_mode_commande_tec_ui", mode_nouveau)
+        champ_commande = self.champs_saisie.get("puissance_tec_W")
+        label_commande = self.labels_parametres.get("puissance_tec_W")
+
+        if champ_commande is None:
+            return
+
+        params_fit = {cle: champ.value() for cle, champ in self.champs_saisie.items()}
+        params_fit["degre_fit_pwm"] = self.obtenir_degre_fit_pwm()
+        params_fit["mode_commande_tec"] = mode_ancien
+
+        valeur_actuelle = champ_commande.value()
+        puissance_equivalente = convertir_commande_tec_vers_puissance(valeur_actuelle, params_fit)
+
+        if mode_nouveau == "pwm":
+            nouvelle_valeur = convertir_puissance_vers_pwm(puissance_equivalente, params_fit)
+            champ_commande.configure_range(-100.0, 100.0, decimals=1, scientific=False, current_val=nouvelle_valeur)
+            if label_commande is not None:
+                label_commande.setText("Commande TEC (PWM %)")
+        else:
+            champ_commande.configure_range(-10.0, 10.0, decimals=2, scientific=False, current_val=puissance_equivalente)
+            if label_commande is not None:
+                label_commande.setText("Puissance TEC (W)")
+
+        self._mode_commande_tec_ui = mode_nouveau
+        self.actualiser_resume_commande_tec()
+        if not initialisation:
+            self.actualiser_controle_live()
+
+    def actualiser_resume_commande_tec(self, *_args):
+        if not hasattr(self, "label_resume_commande_tec"):
+            return
+
+        params = {cle: champ.value() for cle, champ in self.champs_saisie.items()}
+        params["mode_commande_tec"] = self.obtenir_mode_commande_tec()
+        params["degre_fit_pwm"] = self.obtenir_degre_fit_pwm()
+
+        commande = float(self.champs_saisie["puissance_tec_W"].value())
+        puissance_equivalente = convertir_commande_tec_vers_puissance(commande, params)
+        pwm_equivalent = convertir_puissance_vers_pwm(puissance_equivalente, params)
+
+        a0 = float(params.get("coef_pwm_a0", 0.0))
+        a1 = float(params.get("coef_pwm_a1", 0.0))
+        a2 = float(params.get("coef_pwm_a2", 0.0))
+        a3 = float(params.get("coef_pwm_a3", 0.0))
+        degre = self.obtenir_degre_fit_pwm()
+        if degre == 1:
+            texte_modele = f"P ≈ {a0:.3f} + {a1:.4f}|PWM|"
+        elif degre == 2:
+            texte_modele = f"P ≈ {a0:.3f} + {a1:.4f}|PWM| + {a2:.5f}|PWM|²"
+        else:
+            texte_modele = f"P ≈ {a0:.3f} + {a1:.4f}|PWM| + {a2:.5f}|PWM|² + {a3:.6f}|PWM|³"
+
+        if params["mode_commande_tec"] == "pwm":
+            resume = f"Mode PWM : {commande:+.1f} % ≈ {puissance_equivalente:+.2f} W équiv."
+        else:
+            resume = f"Mode Watts : {commande:+.2f} W ≈ {pwm_equivalent:+.1f} % PWM"
+
+        gain_tec = float(params.get("facteur_couplage_tec", 1.0))
+        tau_tec = float(params.get("constante_temps_tec_s", 0.0))
+        self.label_resume_commande_tec.setText(
+            resume + "\n" + texte_modele + f" | gain TEC={gain_tec:.2f}, τ={tau_tec:.1f}s"
+        )
 
     def obtenir_ram_processus_mo(self):
         try:
@@ -1415,6 +1760,10 @@ class MainWindow(QMainWindow):
         params_valides["resolution_grille"] = int(round(params_valides["resolution_grille"]))
         params_valides["intervalle_affichage"] = max(1, int(round(params_valides["intervalle_affichage"])))
         params_valides["consigne_C"] = float(params.get("consigne_C", self.consigne_fixee_C))
+        params_valides["mode_commande_tec"] = normaliser_mode_commande_tec(params.get("mode_commande_tec", "watt"))
+        params_valides["degre_fit_pwm"] = normaliser_degre_fit_pwm(params.get("degre_fit_pwm", 2))
+        params_valides["commande_tec_valeur"] = float(params.get("commande_tec_valeur", params.get("puissance_tec_W", 0.0)))
+        params_valides["pwm_tec_pct"] = float(params.get("pwm_tec_pct", convertir_puissance_vers_pwm(params_valides["puissance_tec_W"], params_valides)))
 
         if params_valides["resolution_grille"] < 2:
             raise ValueError("La résolution de grille doit être supérieure ou égale à 2.")
@@ -1432,6 +1781,16 @@ class MainWindow(QMainWindow):
             raise ValueError("Le facteur de couplage de la perturbation doit être positif ou nul.")
         if params_valides["constante_temps_perturbation_s"] < 0:
             raise ValueError("La constante de temps de la perturbation doit être positive ou nulle.")
+        if params_valides["debut_perturbation_s"] < 0:
+            raise ValueError("Le début de la perturbation doit être positif ou nul.")
+        if params_valides["duree_perturbation_s"] < 0:
+            raise ValueError("La durée de la perturbation doit être positive ou nulle.")
+        if params_valides["facteur_couplage_tec"] < 0:
+            raise ValueError("Le facteur de couplage TEC doit être positif ou nul.")
+        if params_valides["constante_temps_tec_s"] < 0:
+            raise ValueError("La constante de temps TEC doit être positive ou nulle.")
+        if params_valides["mode_commande_tec"] == "pwm" and abs(params_valides["commande_tec_valeur"]) > 100:
+            raise ValueError("Le PWM TEC doit rester entre -100 % et 100 %.")
 
         demi_largeur = params_valides["largeur_x_mm"] / 2.0
         positions_x = {
@@ -1459,44 +1818,98 @@ class MainWindow(QMainWindow):
 
         return params_valides
 
+    def appliquer_parametres_dict(self, parametres, afficher_message=False, source_label="JSON"):
+        if not isinstance(parametres, dict):
+            raise ValueError("Le JSON doit contenir un objet de paramètres valide.")
+
+        if "mode_commande_tec" in parametres and hasattr(self, "combo_mode_commande_tec"):
+            mode = normaliser_mode_commande_tec(parametres.get("mode_commande_tec", "watt"))
+            index_mode = self.combo_mode_commande_tec.findData(mode)
+            if index_mode >= 0:
+                self.combo_mode_commande_tec.setCurrentIndex(index_mode)
+
+        if "degre_fit_pwm" in parametres and hasattr(self, "combo_degre_fit_pwm"):
+            degre = normaliser_degre_fit_pwm(parametres.get("degre_fit_pwm", 2))
+            index_degre = self.combo_degre_fit_pwm.findData(degre)
+            if index_degre >= 0:
+                self.combo_degre_fit_pwm.setCurrentIndex(index_degre)
+
+        nb_parametres_importes = 0
+        champs_invalides = []
+        for cle, valeur in parametres.items():
+            cle_cible = "puissance_tec_W" if cle == "commande_tec_valeur" else cle
+            if cle_cible == "consigne_C":
+                try:
+                    self.consigne_fixee_C = float(valeur)
+                    nb_parametres_importes += 1
+                except (TypeError, ValueError):
+                    champs_invalides.append(cle)
+            elif cle_cible in self.champs_saisie:
+                try:
+                    self.champs_saisie[cle_cible].setValue(float(valeur))
+                    nb_parametres_importes += 1
+                except (TypeError, ValueError):
+                    champs_invalides.append(cle)
+
+        if nb_parametres_importes == 0:
+            raise ValueError("Aucun paramètre reconnu n'a été trouvé dans le fichier.")
+
+        self.actualiser_controle_live()
+        try:
+            self.statusBar().showMessage(f"Paramètres mis à jour depuis {source_label}", 4000)
+        except Exception:
+            pass
+
+        if afficher_message and champs_invalides:
+            QMessageBox.warning(
+                self,
+                "Import partiel",
+                "Certaines valeurs ont été ignorées : " + ", ".join(champs_invalides)
+            )
+
+        return nb_parametres_importes
+
+    def charger_calibration_auto(self, force=False, silencieux=True):
+        chemin = Path(getattr(self, "chemin_calibration_auto", AUTO_CALIBRATION_JSON))
+        if not chemin.exists():
+            return False
+
+        try:
+            horodatage = chemin.stat().st_mtime
+        except OSError:
+            return False
+
+        dernier_horodatage = getattr(self, "_horodatage_calibration_auto", None)
+        if not force and dernier_horodatage is not None and horodatage <= dernier_horodatage:
+            return False
+
+        try:
+            with open(chemin, 'r', encoding='utf-8') as fichier:
+                donnees = json.load(fichier)
+            parametres = donnees.get("parametres", donnees)
+            self.appliquer_parametres_dict(parametres, afficher_message=not silencieux, source_label=chemin.name)
+            self._horodatage_calibration_auto = horodatage
+            return True
+        except (OSError, json.JSONDecodeError, ValueError) as erreur:
+            if not silencieux:
+                QMessageBox.critical(self, "Erreur", f"Impossible de lire le fichier : {erreur}")
+            return False
+
+    def verifier_mise_a_jour_calibration_auto(self):
+        self.charger_calibration_auto(force=False, silencieux=True)
+
     def importer_parametres_json(self):
         chemin_fichier, _ = QFileDialog.getOpenFileName(self, "Importer Paramètres", "", "Fichiers JSON (*.json)")
         if chemin_fichier:
             try:
                 with open(chemin_fichier, 'r', encoding='utf-8') as fichier:
                     donnees = json.load(fichier)
-
                 parametres = donnees.get("parametres", donnees)
-                if not isinstance(parametres, dict):
-                    raise ValueError("Le JSON doit contenir un objet de paramètres valide.")
-
-                nb_parametres_importes = 0
-                champs_invalides = []
-                for cle, valeur in parametres.items():
-                    if cle == "consigne_C":
-                        try:
-                            self.consigne_fixee_C = float(valeur)
-                            nb_parametres_importes += 1
-                        except (TypeError, ValueError):
-                            champs_invalides.append(cle)
-                    elif cle in self.champs_saisie:
-                        try:
-                            self.champs_saisie[cle].setValue(float(valeur))
-                            nb_parametres_importes += 1
-                        except (TypeError, ValueError):
-                            champs_invalides.append(cle)
-
-                if nb_parametres_importes == 0:
-                    raise ValueError("Aucun paramètre reconnu n'a été trouvé dans le fichier.")
-
-                self.actualiser_controle_live()
-
-                if champs_invalides:
-                    QMessageBox.warning(
-                        self,
-                        "Import partiel",
-                        "Certaines valeurs ont été ignorées : " + ", ".join(champs_invalides)
-                    )
+                self.appliquer_parametres_dict(parametres, afficher_message=True, source_label=Path(chemin_fichier).name)
+                try:
+                    self._horodatage_calibration_auto = Path(chemin_fichier).stat().st_mtime
+                except OSError:
+                    pass
             except (OSError, json.JSONDecodeError, ValueError) as erreur:
                 QMessageBox.critical(self, "Erreur", f"Impossible de lire le fichier : {erreur}")
 
@@ -1652,14 +2065,20 @@ class MainWindow(QMainWindow):
             self.bouton_pause.setEnabled(False)
             self.bouton_quicksave.setEnabled(False)
             
-    def actualiser_controle_live(self):
+    def actualiser_controle_live(self, *_args):
+        params_interface = self.recuperer_parametres_interface()
+        self.actualiser_resume_commande_tec()
         self.mettre_a_jour_indicateur_stabilite()
         if self.simulation_en_cours():
             mode_pid = False
-            puiss = self.champs_saisie["puissance_tec_W"].value()
+            puiss = params_interface["puissance_tec_W"]
             cons = self.consigne_fixee_C
-            tens = self.champs_saisie["tension_resistance_V"].value()
-            self.thread_simulation.modifier_parametres_controle(mode_pid, puiss, cons, tens)
+            tens = params_interface["tension_resistance_V"]
+            gain_tec = params_interface.get("facteur_couplage_tec", 1.0)
+            tau_tec = params_interface.get("constante_temps_tec_s", 0.0)
+            debut_perturb = params_interface.get("debut_perturbation_s", 0.0)
+            duree_perturb = params_interface.get("duree_perturbation_s", params_interface.get("temps_total_s", 0.0))
+            self.thread_simulation.modifier_parametres_controle(mode_pid, puiss, cons, tens, gain_tec, tau_tec, debut_perturb, duree_perturb)
 
     def actualiser_graphiques(self, temps_sim, matrice_temperatures_3d, temp_T1, temp_T2, temp_T3):
         self.donnees_temps.append(temps_sim)

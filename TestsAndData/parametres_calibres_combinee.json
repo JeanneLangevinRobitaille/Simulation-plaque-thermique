@@ -1,5 +1,6 @@
 {
     "parametres": {
+<<<<<<< HEAD
         "diffusivite_alpha": 98.444,
         "coeff_convection_h": 4.04e-05,
         "chaleur_massique_cp": 1.7157,
@@ -7,10 +8,25 @@
         "constante_temps_perturbation_s": 9.25,
         "facteur_couplage_tec": 1.0,
         "constante_temps_tec_s": 6.0
+=======
+        "diffusivite_alpha": 97.051,
+        "coeff_convection_h": 2.996e-05,
+        "chaleur_massique_cp": 1.0395,
+        "facteur_couplage_perturbation": 0.2,
+        "constante_temps_perturbation_s": 8.04,
+        "facteur_couplage_tec": 1.0,
+        "constante_temps_tec_s": 8.0,
+        "degre_fit_pwm": 3,
+        "coef_pwm_a0": 0.01727419,
+        "coef_pwm_a1": 0.14013345,
+        "coef_pwm_a2": 0.0009881,
+        "coef_pwm_a3": -1.1205e-05
+>>>>>>> 0357c07b7db6804352a099c088adb2b175087203
     },
     "calibration": {
         "success": true,
         "optimiseur_reussi": true,
+<<<<<<< HEAD
         "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
         "branches_utilisees": [
             "perturbation"
@@ -94,6 +110,241 @@
                     "T1": 0.497,
                     "T2": 0.51,
                     "T3": 0.794
+=======
+        "mode_calibration": "pwm-model",
+        "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+        "branches_utilisees": [
+            "tec"
+        ],
+        "nombre_essais": 12,
+        "rmse_avant_C": 5.11710809790358,
+        "rmse_apres_C": 3.758850969088223,
+        "equation_pwm": "P(W) ≈ 0.0172742 + 0.140133·|PWM| + 0.000988096·|PWM|² + -1.1205e-05·|PWM|³",
+        "parametres_fixes": {
+            "diffusivite_alpha": 97.051,
+            "coeff_convection_h": 2.996e-05,
+            "chaleur_massique_cp": 1.0395,
+            "facteur_couplage_perturbation": 0.2,
+            "constante_temps_perturbation_s": 8.04
+        },
+        "parametres": {
+            "diffusivite_alpha": 97.051,
+            "coeff_convection_h": 2.996e-05,
+            "chaleur_massique_cp": 1.0395,
+            "facteur_couplage_perturbation": 0.2,
+            "constante_temps_perturbation_s": 8.04,
+            "facteur_couplage_tec": 1.0,
+            "constante_temps_tec_s": 8.0,
+            "degre_fit_pwm": 3,
+            "coef_pwm_a0": 0.01727419,
+            "coef_pwm_a1": 0.14013345,
+            "coef_pwm_a2": 0.0009881,
+            "coef_pwm_a3": -1.1205e-05
+        },
+        "essais": [
+            {
+                "nom": "echelon 3.55% pwm (rien à 3.5).csv",
+                "source": "tec",
+                "signal": 3.55,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 3.55,
+                "mode": "chauffage",
+                "puissance_estimee_W": 0.527,
+                "rmse_C": 2.025,
+                "rmse_capteurs_C": {
+                    "T2": 2.128,
+                    "T3": 1.917
+                }
+            },
+            {
+                "nom": "test echelon -3.85% pwm (rien avant).csv",
+                "source": "tec",
+                "signal": 3.85,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 3.85,
+                "mode": "refroidissement",
+                "puissance_estimee_W": -0.571,
+                "rmse_C": 1.841,
+                "rmse_capteurs_C": {
+                    "T2": 1.978,
+                    "T3": 1.692
+                }
+            },
+            {
+                "nom": "test échelon -3.9% pwm (rien à -3.8).csv",
+                "source": "tec",
+                "signal": 3.9,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 3.9,
+                "mode": "refroidissement",
+                "puissance_estimee_W": -0.578,
+                "rmse_C": 1.642,
+                "rmse_capteurs_C": {
+                    "T2": 1.754,
+                    "T3": 1.522
+                }
+            },
+            {
+                "nom": "test échelon près de zone morte (3.6% pwm).csv",
+                "source": "tec",
+                "signal": 3.6,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 3.6,
+                "mode": "chauffage",
+                "puissance_estimee_W": 0.534,
+                "rmse_C": 1.171,
+                "rmse_capteurs_C": {
+                    "T2": 1.258,
+                    "T3": 1.077
+                }
+            },
+            {
+                "nom": "Échelon +10 pwm d.t.csv",
+                "source": "tec",
+                "signal": 10.0,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 10.0,
+                "mode": "chauffage",
+                "puissance_estimee_W": 1.506,
+                "rmse_C": 0.806,
+                "rmse_capteurs_C": {
+                    "T2": 1.011,
+                    "T3": 0.527
+                }
+            },
+            {
+                "nom": "Échelon +15 pwm d.t.csv",
+                "source": "tec",
+                "signal": 15.0,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 15.0,
+                "mode": "chauffage",
+                "puissance_estimee_W": 2.304,
+                "rmse_C": 2.097,
+                "rmse_capteurs_C": {
+                    "T2": 2.503,
+                    "T3": 1.592
+                }
+            },
+            {
+                "nom": "Échelon +20 pwm d.t.csv",
+                "source": "tec",
+                "signal": 20.0,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 20.0,
+                "mode": "chauffage",
+                "puissance_estimee_W": 3.126,
+                "rmse_C": 3.486,
+                "rmse_capteurs_C": {
+                    "T2": 4.069,
+                    "T3": 2.783
+                }
+            },
+            {
+                "nom": "Échelon +30 pwm d.t.csv",
+                "source": "tec",
+                "signal": 30.0,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 30.0,
+                "mode": "chauffage",
+                "puissance_estimee_W": 4.808,
+                "rmse_C": 7.69,
+                "rmse_capteurs_C": {
+                    "T2": 8.754,
+                    "T3": 6.453
+                }
+            },
+            {
+                "nom": "Échelon -10 pwm d.t.csv",
+                "source": "tec",
+                "signal": 10.0,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 10.0,
+                "mode": "refroidissement",
+                "puissance_estimee_W": -1.506,
+                "rmse_C": 0.395,
+                "rmse_capteurs_C": {
+                    "T2": 0.492,
+                    "T3": 0.264
+                }
+            },
+            {
+                "nom": "Échelon -15 pwm d.t.csv",
+                "source": "tec",
+                "signal": 15.0,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 15.0,
+                "mode": "refroidissement",
+                "puissance_estimee_W": -2.304,
+                "rmse_C": 0.573,
+                "rmse_capteurs_C": {
+                    "T2": 0.722,
+                    "T3": 0.368
+                }
+            },
+            {
+                "nom": "Échelon -20 pwm d.t.csv",
+                "source": "tec",
+                "signal": 20.0,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 20.0,
+                "mode": "refroidissement",
+                "puissance_estimee_W": -3.126,
+                "rmse_C": 3.248,
+                "rmse_capteurs_C": {
+                    "T2": 3.175,
+                    "T3": 3.32
+                }
+            },
+            {
+                "nom": "Échelon -30 pwm d.t.csv",
+                "source": "tec",
+                "signal": 30.0,
+                "capteurs": [
+                    "T2",
+                    "T3"
+                ],
+                "pwm_percent": 30.0,
+                "mode": "refroidissement",
+                "puissance_estimee_W": -4.808,
+                "rmse_C": 8.404,
+                "rmse_capteurs_C": {
+                    "T2": 8.552,
+                    "T3": 8.253
+>>>>>>> 0357c07b7db6804352a099c088adb2b175087203
                 }
             }
         ]
