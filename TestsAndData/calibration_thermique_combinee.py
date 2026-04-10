@@ -17,18 +17,24 @@ import tkinter as tk
 from scipy.optimize import minimize
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-REPO_ROOT = Path(__file__).resolve().parent
-DEFAULT_PERTURB_DIR = REPO_ROOT / "TestsAndData" / "test de puissance à résistance perturbation"
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = next(
+    (parent for parent in (SCRIPT_DIR, *SCRIPT_DIR.parents) if (parent / "SimulateurUpgrade.py").exists()),
+    SCRIPT_DIR,
+)
+DATA_ROOT = REPO_ROOT / "TestsAndData" if (REPO_ROOT / "TestsAndData").exists() else SCRIPT_DIR
+
+DEFAULT_PERTURB_DIR = DATA_ROOT / "test de puissance à résistance perturbation"
 DEFAULT_TEC_DIR_CANDIDATES = (
-    REPO_ROOT / "TestsAndData" / "test de PWM sur TEC",
-    REPO_ROOT / "TestsAndData" / "test pwm tec",
-    REPO_ROOT / "TestsAndData" / "test PWM TEC",
-    REPO_ROOT / "TestsAndData" / "echelons pwm tec",
-    REPO_ROOT / "TestsAndData" / "echelons tec",
-    REPO_ROOT / "TestsAndData" / "tec_pwm_steps",
+    DATA_ROOT / "test de PWM sur TEC",
+    DATA_ROOT / "test pwm tec",
+    DATA_ROOT / "test PWM TEC",
+    DATA_ROOT / "echelons pwm tec",
+    DATA_ROOT / "echelons tec",
+    DATA_ROOT / "tec_pwm_steps",
 )
 DEFAULT_TEC_DIR = next((path for path in DEFAULT_TEC_DIR_CANDIDATES if path.exists()), DEFAULT_TEC_DIR_CANDIDATES[0])
-OUTPUT_FILE = REPO_ROOT / "parametres_calibres_combinee.json"
+OUTPUT_FILE = DATA_ROOT / "parametres_calibres_combinee.json"
 DEFAULT_FIXED_PARAMS_FILE = OUTPUT_FILE
 
 DEFAULT_PWM_MODEL = {
@@ -302,7 +308,12 @@ def load_fixed_parameters_from_json(path: Path | None) -> dict[str, float]:
     if not resolved.exists() or not resolved.is_file():
         return {}
 
-    payload = json.loads(resolved.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[calibration] JSON ignoré ({resolved.name}) : {exc}", file=sys.stderr)
+        return {}
+
     params = payload.get("parametres", payload)
     if not isinstance(params, dict):
         return {}

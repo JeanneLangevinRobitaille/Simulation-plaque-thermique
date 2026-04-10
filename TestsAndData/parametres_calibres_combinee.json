@@ -1,47 +1,42 @@
 {
     "parametres": {
-<<<<<<< HEAD
-        "diffusivite_alpha": 98.444,
-        "coeff_convection_h": 4.04e-05,
-        "chaleur_massique_cp": 1.7157,
-        "facteur_couplage_perturbation": 0.275,
-        "constante_temps_perturbation_s": 9.25,
-        "facteur_couplage_tec": 1.0,
-        "constante_temps_tec_s": 6.0
-=======
-        "diffusivite_alpha": 97.051,
-        "coeff_convection_h": 2.996e-05,
-        "chaleur_massique_cp": 1.0395,
+        "diffusivite_alpha": 96.971,
+        "coeff_convection_h": 2.951e-05,
+        "chaleur_massique_cp": 0.891,
         "facteur_couplage_perturbation": 0.2,
-        "constante_temps_perturbation_s": 8.04,
-        "facteur_couplage_tec": 1.0,
-        "constante_temps_tec_s": 8.0,
+        "constante_temps_perturbation_s": 8.03,
+        "facteur_couplage_tec": 0.84,
+        "constante_temps_tec_s": 7.96,
         "degre_fit_pwm": 3,
-        "coef_pwm_a0": 0.01727419,
-        "coef_pwm_a1": 0.14013345,
-        "coef_pwm_a2": 0.0009881,
-        "coef_pwm_a3": -1.1205e-05
->>>>>>> 0357c07b7db6804352a099c088adb2b175087203
+        "coef_pwm_a0": 0.01734031,
+        "coef_pwm_a1": 0.1406312,
+        "coef_pwm_a2": 0.00099478,
+        "coef_pwm_a3": 1.70328e-05
     },
     "calibration": {
         "success": true,
         "optimiseur_reussi": true,
-<<<<<<< HEAD
         "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
         "branches_utilisees": [
-            "perturbation"
+            "perturbation",
+            "tec"
         ],
-        "nombre_essais": 4,
-        "rmse_avant_C": 19.455238569373677,
-        "rmse_apres_C": 1.0489760209352532,
+        "nombre_essais": 16,
+        "rmse_avant_C": 4.4634335950641555,
+        "rmse_apres_C": 3.321705895558915,
         "parametres": {
-            "diffusivite_alpha": 98.444,
-            "coeff_convection_h": 4.04e-05,
-            "chaleur_massique_cp": 1.7157,
-            "facteur_couplage_perturbation": 0.275,
-            "constante_temps_perturbation_s": 9.25,
-            "facteur_couplage_tec": 1.0,
-            "constante_temps_tec_s": 6.0
+            "diffusivite_alpha": 96.971,
+            "coeff_convection_h": 2.951e-05,
+            "chaleur_massique_cp": 0.891,
+            "facteur_couplage_perturbation": 0.2,
+            "constante_temps_perturbation_s": 8.03,
+            "facteur_couplage_tec": 0.84,
+            "constante_temps_tec_s": 7.96,
+            "degre_fit_pwm": 3,
+            "coef_pwm_a0": 0.01734031,
+            "coef_pwm_a1": 0.1406312,
+            "coef_pwm_a2": 0.00099478,
+            "coef_pwm_a3": 1.70328e-05
         },
         "essais": [
             {
@@ -49,16 +44,14 @@
                 "source": "perturbation",
                 "signal": 0.81,
                 "capteurs": [
-                    "T1",
                     "T2",
                     "T3"
                 ],
                 "puissance_W": 0.81,
-                "rmse_C": 0.516,
+                "rmse_C": 0.472,
                 "rmse_capteurs_C": {
-                    "T1": 0.785,
-                    "T2": 0.332,
-                    "T3": 0.267
+                    "T2": 0.558,
+                    "T3": 0.366
                 }
             },
             {
@@ -66,16 +59,14 @@
                 "source": "perturbation",
                 "signal": 1.44,
                 "capteurs": [
-                    "T1",
                     "T2",
                     "T3"
                 ],
                 "puissance_W": 1.44,
-                "rmse_C": 1.686,
+                "rmse_C": 0.314,
                 "rmse_capteurs_C": {
-                    "T1": 2.771,
-                    "T2": 0.648,
-                    "T3": 0.658
+                    "T2": 0.242,
+                    "T3": 0.373
                 }
             },
             {
@@ -83,16 +74,14 @@
                 "source": "perturbation",
                 "signal": 2.56,
                 "capteurs": [
-                    "T1",
                     "T2",
                     "T3"
                 ],
                 "puissance_W": 2.56,
-                "rmse_C": 0.955,
+                "rmse_C": 1.394,
                 "rmse_capteurs_C": {
-                    "T1": 0.717,
-                    "T2": 1.158,
-                    "T3": 0.939
+                    "T2": 1.419,
+                    "T3": 1.368
                 }
             },
             {
@@ -100,48 +89,16 @@
                 "source": "perturbation",
                 "signal": 4.0,
                 "capteurs": [
-                    "T1",
                     "T2",
                     "T3"
                 ],
                 "puissance_W": 4.0,
-                "rmse_C": 0.616,
+                "rmse_C": 1.204,
                 "rmse_capteurs_C": {
-                    "T1": 0.497,
-                    "T2": 0.51,
-                    "T3": 0.794
-=======
-        "mode_calibration": "pwm-model",
-        "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
-        "branches_utilisees": [
-            "tec"
-        ],
-        "nombre_essais": 12,
-        "rmse_avant_C": 5.11710809790358,
-        "rmse_apres_C": 3.758850969088223,
-        "equation_pwm": "P(W) ≈ 0.0172742 + 0.140133·|PWM| + 0.000988096·|PWM|² + -1.1205e-05·|PWM|³",
-        "parametres_fixes": {
-            "diffusivite_alpha": 97.051,
-            "coeff_convection_h": 2.996e-05,
-            "chaleur_massique_cp": 1.0395,
-            "facteur_couplage_perturbation": 0.2,
-            "constante_temps_perturbation_s": 8.04
-        },
-        "parametres": {
-            "diffusivite_alpha": 97.051,
-            "coeff_convection_h": 2.996e-05,
-            "chaleur_massique_cp": 1.0395,
-            "facteur_couplage_perturbation": 0.2,
-            "constante_temps_perturbation_s": 8.04,
-            "facteur_couplage_tec": 1.0,
-            "constante_temps_tec_s": 8.0,
-            "degre_fit_pwm": 3,
-            "coef_pwm_a0": 0.01727419,
-            "coef_pwm_a1": 0.14013345,
-            "coef_pwm_a2": 0.0009881,
-            "coef_pwm_a3": -1.1205e-05
-        },
-        "essais": [
+                    "T2": 1.621,
+                    "T3": 0.523
+                }
+            },
             {
                 "nom": "echelon 3.55% pwm (rien à 3.5).csv",
                 "source": "tec",
@@ -152,11 +109,11 @@
                 ],
                 "pwm_percent": 3.55,
                 "mode": "chauffage",
-                "puissance_estimee_W": 0.527,
-                "rmse_C": 2.025,
+                "puissance_estimee_W": 0.53,
+                "rmse_C": 1.759,
                 "rmse_capteurs_C": {
-                    "T2": 2.128,
-                    "T3": 1.917
+                    "T2": 1.859,
+                    "T3": 1.653
                 }
             },
             {
@@ -169,11 +126,11 @@
                 ],
                 "pwm_percent": 3.85,
                 "mode": "refroidissement",
-                "puissance_estimee_W": -0.571,
-                "rmse_C": 1.841,
+                "puissance_estimee_W": -0.574,
+                "rmse_C": 1.644,
                 "rmse_capteurs_C": {
-                    "T2": 1.978,
-                    "T3": 1.692
+                    "T2": 1.779,
+                    "T3": 1.498
                 }
             },
             {
@@ -186,11 +143,11 @@
                 ],
                 "pwm_percent": 3.9,
                 "mode": "refroidissement",
-                "puissance_estimee_W": -0.578,
-                "rmse_C": 1.642,
+                "puissance_estimee_W": -0.582,
+                "rmse_C": 1.48,
                 "rmse_capteurs_C": {
-                    "T2": 1.754,
-                    "T3": 1.522
+                    "T2": 1.589,
+                    "T3": 1.362
                 }
             },
             {
@@ -203,11 +160,11 @@
                 ],
                 "pwm_percent": 3.6,
                 "mode": "chauffage",
-                "puissance_estimee_W": 0.534,
-                "rmse_C": 1.171,
+                "puissance_estimee_W": 0.537,
+                "rmse_C": 1.059,
                 "rmse_capteurs_C": {
-                    "T2": 1.258,
-                    "T3": 1.077
+                    "T2": 1.143,
+                    "T3": 0.967
                 }
             },
             {
@@ -220,11 +177,11 @@
                 ],
                 "pwm_percent": 10.0,
                 "mode": "chauffage",
-                "puissance_estimee_W": 1.506,
-                "rmse_C": 0.806,
+                "puissance_estimee_W": 1.54,
+                "rmse_C": 1.232,
                 "rmse_capteurs_C": {
-                    "T2": 1.011,
-                    "T3": 0.527
+                    "T2": 1.465,
+                    "T3": 0.944
                 }
             },
             {
@@ -237,11 +194,11 @@
                 ],
                 "pwm_percent": 15.0,
                 "mode": "chauffage",
-                "puissance_estimee_W": 2.304,
-                "rmse_C": 2.097,
+                "puissance_estimee_W": 2.408,
+                "rmse_C": 2.959,
                 "rmse_capteurs_C": {
-                    "T2": 2.503,
-                    "T3": 1.592
+                    "T2": 3.358,
+                    "T3": 2.497
                 }
             },
             {
@@ -254,11 +211,11 @@
                 ],
                 "pwm_percent": 20.0,
                 "mode": "chauffage",
-                "puissance_estimee_W": 3.126,
-                "rmse_C": 3.486,
+                "puissance_estimee_W": 3.364,
+                "rmse_C": 4.222,
                 "rmse_capteurs_C": {
-                    "T2": 4.069,
-                    "T3": 2.783
+                    "T2": 4.768,
+                    "T3": 3.595
                 }
             },
             {
@@ -271,11 +228,11 @@
                 ],
                 "pwm_percent": 30.0,
                 "mode": "chauffage",
-                "puissance_estimee_W": 4.808,
-                "rmse_C": 7.69,
+                "puissance_estimee_W": 5.591,
+                "rmse_C": 7.436,
                 "rmse_capteurs_C": {
-                    "T2": 8.754,
-                    "T3": 6.453
+                    "T2": 8.37,
+                    "T3": 6.368
                 }
             },
             {
@@ -288,11 +245,11 @@
                 ],
                 "pwm_percent": 10.0,
                 "mode": "refroidissement",
-                "puissance_estimee_W": -1.506,
-                "rmse_C": 0.395,
+                "puissance_estimee_W": -1.54,
+                "rmse_C": 0.728,
                 "rmse_capteurs_C": {
-                    "T2": 0.492,
-                    "T3": 0.264
+                    "T2": 0.84,
+                    "T3": 0.594
                 }
             },
             {
@@ -305,11 +262,11 @@
                 ],
                 "pwm_percent": 15.0,
                 "mode": "refroidissement",
-                "puissance_estimee_W": -2.304,
-                "rmse_C": 0.573,
+                "puissance_estimee_W": -2.408,
+                "rmse_C": 0.945,
                 "rmse_capteurs_C": {
-                    "T2": 0.722,
-                    "T3": 0.368
+                    "T2": 1.081,
+                    "T3": 0.785
                 }
             },
             {
@@ -322,11 +279,11 @@
                 ],
                 "pwm_percent": 20.0,
                 "mode": "refroidissement",
-                "puissance_estimee_W": -3.126,
-                "rmse_C": 3.248,
+                "puissance_estimee_W": -3.364,
+                "rmse_C": 2.354,
                 "rmse_capteurs_C": {
-                    "T2": 3.175,
-                    "T3": 3.32
+                    "T2": 2.303,
+                    "T3": 2.403
                 }
             },
             {
@@ -339,12 +296,11 @@
                 ],
                 "pwm_percent": 30.0,
                 "mode": "refroidissement",
-                "puissance_estimee_W": -4.808,
-                "rmse_C": 8.404,
+                "puissance_estimee_W": -5.591,
+                "rmse_C": 8.564,
                 "rmse_capteurs_C": {
-                    "T2": 8.552,
-                    "T3": 8.253
->>>>>>> 0357c07b7db6804352a099c088adb2b175087203
+                    "T2": 8.84,
+                    "T3": 8.28
                 }
             }
         ]
