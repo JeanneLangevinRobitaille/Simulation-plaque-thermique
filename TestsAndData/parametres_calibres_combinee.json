@@ -1,5 +1,14 @@
 {
     "parametres": {
+<<<<<<< HEAD
+        "diffusivite_alpha": 98.444,
+        "coeff_convection_h": 4.04e-05,
+        "chaleur_massique_cp": 1.7157,
+        "facteur_couplage_perturbation": 0.275,
+        "constante_temps_perturbation_s": 9.25,
+        "facteur_couplage_tec": 1.0,
+        "constante_temps_tec_s": 6.0
+=======
         "diffusivite_alpha": 97.051,
         "coeff_convection_h": 2.996e-05,
         "chaleur_massique_cp": 1.0395,
@@ -12,10 +21,96 @@
         "coef_pwm_a1": 0.14013345,
         "coef_pwm_a2": 0.0009881,
         "coef_pwm_a3": -1.1205e-05
+>>>>>>> 0357c07b7db6804352a099c088adb2b175087203
     },
     "calibration": {
         "success": true,
         "optimiseur_reussi": true,
+<<<<<<< HEAD
+        "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+        "branches_utilisees": [
+            "perturbation"
+        ],
+        "nombre_essais": 4,
+        "rmse_avant_C": 19.455238569373677,
+        "rmse_apres_C": 1.0489760209352532,
+        "parametres": {
+            "diffusivite_alpha": 98.444,
+            "coeff_convection_h": 4.04e-05,
+            "chaleur_massique_cp": 1.7157,
+            "facteur_couplage_perturbation": 0.275,
+            "constante_temps_perturbation_s": 9.25,
+            "facteur_couplage_tec": 1.0,
+            "constante_temps_tec_s": 6.0
+        },
+        "essais": [
+            {
+                "nom": "mesure (puissance 0.81W et 4.5 V).csv",
+                "source": "perturbation",
+                "signal": 0.81,
+                "capteurs": [
+                    "T1",
+                    "T2",
+                    "T3"
+                ],
+                "puissance_W": 0.81,
+                "rmse_C": 0.516,
+                "rmse_capteurs_C": {
+                    "T1": 0.785,
+                    "T2": 0.332,
+                    "T3": 0.267
+                }
+            },
+            {
+                "nom": "test de puissance (1.44 W) à résistance de perturbation.csv",
+                "source": "perturbation",
+                "signal": 1.44,
+                "capteurs": [
+                    "T1",
+                    "T2",
+                    "T3"
+                ],
+                "puissance_W": 1.44,
+                "rmse_C": 1.686,
+                "rmse_capteurs_C": {
+                    "T1": 2.771,
+                    "T2": 0.648,
+                    "T3": 0.658
+                }
+            },
+            {
+                "nom": "test puissance de 2.56 W (8V) à résist. perturbation.csv",
+                "source": "perturbation",
+                "signal": 2.56,
+                "capteurs": [
+                    "T1",
+                    "T2",
+                    "T3"
+                ],
+                "puissance_W": 2.56,
+                "rmse_C": 0.955,
+                "rmse_capteurs_C": {
+                    "T1": 0.717,
+                    "T2": 1.158,
+                    "T3": 0.939
+                }
+            },
+            {
+                "nom": "test puissance perturbation à 4W et 10V.csv",
+                "source": "perturbation",
+                "signal": 4.0,
+                "capteurs": [
+                    "T1",
+                    "T2",
+                    "T3"
+                ],
+                "puissance_W": 4.0,
+                "rmse_C": 0.616,
+                "rmse_capteurs_C": {
+                    "T1": 0.497,
+                    "T2": 0.51,
+                    "T3": 0.794
+=======
         "mode_calibration": "pwm-model",
         "message": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
         "branches_utilisees": [
@@ -249,6 +344,7 @@
                 "rmse_capteurs_C": {
                     "T2": 8.552,
                     "T3": 8.253
+>>>>>>> 0357c07b7db6804352a099c088adb2b175087203
                 }
             }
         ]
