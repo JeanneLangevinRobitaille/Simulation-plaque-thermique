@@ -10,14 +10,14 @@ avec une commande du terminal ou en appuyant sur le bouton d'exécution de votre
 
 Un panneau à gauche donne accès à tous les paramètres importants de la simulation et un champ de texte aide à les changer selon les besoins de l'utilisateur. Une barre de défilement horizontale ainsi que l'utilisation de la roue de défilement occupent la même fonction, quoique plus grossièrement. Les paramètres utilisés dans les calculs se regroupent en plusieurs catégories, voir la section Paramètres
 
-Afin de pouvoir simuler des changements dynamiques dans la puissance appliquée par le TEC et la perturbation de la résistance, les paramètres d'entrée du TEC et de la tension peuvent être ajustés continuellement pendant une simulation ; elle s'ajustera instantanément. En bas de ce panneau se trouvent le sélecteur de modes et les boutons de contrôle principaux. La simulation peut être utilisée en deux modes :
+Afin de pouvoir simuler des changements dynamiques dans la puissance appliquée par le TEC et la perturbation de la résistance, les paramètres d'entrée du TEC et de la tension peuvent être ajustés continuellement pendant une simulation ; elle s'ajustera instantanément. La simulation peut aussi être utilisée en deux modes :
 
-- PID automatique (consigne) :
-- 
+- PWM : utilise une relation empirique qui relie la puissance au PWM de l'actuateur thermoélectrique
+- Puissance : utilise directement la puissance en watts
 
 Les boutons de contrôle sont ce qui permettent d'envoyer les paramètres choisis aux processus de calcul du simulateur. Le bouton Démarrer en vert active la simulation, le bouton Pause en jaune la met sur pause et la réactive et le bouton Arrêter en rouge termine la simulation sans option de la réactiver. Le bouton Démarrer peut être appuyé une deuxième fois pour redémarrer la simulation zéro. Il y a aussi deux boutons qui facilitent la manipulation des données du simulateur. Ils sont Importer JSON qui intègre les paramètres d'un fichier JSON préparé et Sauver JSON, qui exporte les paramètres de la simulation ainsi que les données temporelles aux trois points d'intérêt dans un fichier JSON. Un bouton Quicksave sauvegarde aussi les données, mais seulement quand la simulation est mis sur pause. Lors de la simulation, une barre de progrès au bas de l'écran affiche le pourcentage de la simulation qui a été réalisé. 
 
-À droite de l'écran, une surface montre l'évolution de la température sur la surface de la plaque et représente les thermistances par des points colorés. Ces points sont aussi représentés dans un graphique de température en fonction du temps qui est synchronisé avec la surface. Finalement, une barre de défilement permet d'observer rapidement l'évolution temporelle de la température de la même façon qu'une vidéo, ce qui facilite la révision de la simulation en préparation pour une autre. Un sélecteur de vitesse est aussi inclue à côté de cette barre de défilement, cependant elle n'affecte la simulation que très peu.
+À droite de l'écran, une surface montre l'évolution de la température sur la surface de la plaque et représente les thermistances par des points colorés. Ces points sont aussi représentés dans un graphique de température en fonction du temps qui est synchronisé avec la surface. Finalement, une barre de défilement permet d'observer rapidement l'évolution temporelle de la température de la même façon qu'une vidéo, ce qui facilite la révision de la simulation en préparation pour une autre. Un sélecteur de vitesse est aussi inclue à côté de cette barre de défilement, permettant de revoir la simulation à divers vitesses.
 
   **3. Les fonctions**
   
@@ -32,7 +32,8 @@ Les boutons de contrôle sont ce qui permettent d'envoyer les paramètres choisi
 - Interagir avec les graphiques (zoom in/out, rotation, etc)
 - Changer entre le mode puissance et le mode consigne de l’intrant du TEC
 - Voyager à travers l’historique temporelle de la simulation
-- Ajuster la vitesse de la simulation
+- Ajuster la vitesse de relecture de la simulation
+- Obtenir de l'information sur la stabilité de la simulation et des ressources utilisées
 
 **4. Les paramètres**
 
@@ -71,6 +72,8 @@ Les paramètres sont les suivants :
   - Position : en mm, la position de la résistance perturbative
   - Résistance : en ohms, la valeur de résistance de la perturbation
   - Tension : en volts, la tension constante appliquée à la résistance perturbative
+  - Facteur couplage : le couplage de la perturbation à la plaque
+  - Constante de temps : la rapidité de réchauffement de la perturbation en secondes
 
 
 
