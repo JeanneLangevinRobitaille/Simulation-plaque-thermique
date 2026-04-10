@@ -46,10 +46,10 @@ BASE_PARAMS = {
     "epaisseur_mm": 1.7,
     "resolution_grille": 12,
     "temperature_ambiante_C": 20.0,
-    "diffusivite_alpha": 97.0,
+    "diffusivite_alpha": 97.034,
     "masse_volumique_rho": 2.7e-3,
-    "chaleur_massique_cp": 0.9,
-    "coeff_convection_h": 5.353e-5,
+    "chaleur_massique_cp": 0.99,
+    "coeff_convection_h": 3.038e-5,
     "pos_x_capteur_1_mm": 0.0,
     "pos_y_capteur_1_mm": 14.57,
     "pos_x_capteur_2_mm": 0.0,
@@ -80,10 +80,10 @@ DEFAULT_OPTIMIZER_INITIALS = {
     "diffusivite_alpha": float(BASE_PARAMS["diffusivite_alpha"]),
     "coeff_convection_h": float(BASE_PARAMS["coeff_convection_h"]),
     "chaleur_massique_cp": float(BASE_PARAMS["chaleur_massique_cp"]),
-    "facteur_couplage_perturbation": 1.0,
-    "tau_perturbation_s": 8.0,
-    "facteur_couplage_tec": 1.0,
-    "tau_tec_s": 6.0,
+    "facteur_couplage_perturbation": 0.20,
+    "tau_perturbation_s": 8.03,
+    "facteur_couplage_tec": 0.60,
+    "tau_tec_s": 8.0,
     **DEFAULT_PWM_MODEL,
 }
 
@@ -91,10 +91,10 @@ DEFAULT_MAX_VARIATION_PCT = {
     "diffusivite_alpha": 200,
     "coeff_convection_h": 200.0,
     "chaleur_massique_cp": 10.0,
-    "facteur_couplage_perturbation": 0.0,
-    "tau_perturbation_s": 0.0,
-    "facteur_couplage_tec": 0.0,
-    "tau_tec_s": 0.0,
+    "facteur_couplage_perturbation": 40.0,
+    "tau_perturbation_s": 100.0,
+    "facteur_couplage_tec": 40.0,
+    "tau_tec_s": 100.0,
     "coef_pwm_a0": 100.0,
     "coef_pwm_a1": 100.0,
     "coef_pwm_a2": 200.0,
@@ -138,6 +138,7 @@ PERTURBATION_EXPERIMENT_SPECS = [
 
 # À remplir si les noms de fichiers TEC n'indiquent pas le PWM.
 TEC_EXPERIMENT_SPECS: list[dict[str, object]] = []
+CALIBRATION_SENSOR_NAMES = ("T2", "T3")
 
 
 ProgressCallback = Callable[[str], None]
@@ -429,7 +430,7 @@ def load_perturbation_experiments(
     experiments: list[ThermalExperiment] = []
     for index, (path, power_w) in enumerate(matches, start=1):
         time_s, sensor_deltas = _load_common_csv(path, max_time_s=max_time_s, downsample=downsample)
-        filtered = {name: values for name, values in sensor_deltas.items() if name in {"T2", "T3", "T1"}}
+        filtered = {name: values for name, values in sensor_deltas.items() if name in CALIBRATION_SENSOR_NAMES}
         experiment = ThermalExperiment(
             name=path.name,
             source="perturbation",
@@ -487,13 +488,14 @@ def load_tec_experiments(
     experiments: list[ThermalExperiment] = []
     for index, (path, pwm_percent, sign) in enumerate(matches, start=1):
         time_s, sensor_deltas = _load_common_csv(path, max_time_s=max_time_s, downsample=downsample)
+        filtered = {name: values for name, values in sensor_deltas.items() if name in CALIBRATION_SENSOR_NAMES}
         experiment = ThermalExperiment(
             name=path.name,
             source="tec",
             input_level=float(pwm_percent),
             sign=float(sign),
             time_s=time_s,
-            sensor_deltas_c=sensor_deltas,
+            sensor_deltas_c=filtered,
         )
         experiments.append(experiment)
         if progress_callback is not None:
@@ -795,10 +797,10 @@ def calibrate_combined(
 
     baseline = build_evaluation_params(
         {
-            "facteur_couplage_perturbation": 1.0,
-            "tau_perturbation_s": 8.0,
-            "facteur_couplage_tec": 1.0,
-            "tau_tec_s": 6.0,
+            "facteur_couplage_perturbation": DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_perturbation"],
+            "tau_perturbation_s": DEFAULT_OPTIMIZER_INITIALS["tau_perturbation_s"],
+            "facteur_couplage_tec": DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_tec"],
+            "tau_tec_s": DEFAULT_OPTIMIZER_INITIALS["tau_tec_s"],
             **{key: value for key, value in initial_params.items() if key in optimization_keys},
         }
     )
@@ -972,7 +974,7 @@ def calibrate_pwm_model(
     baseline = build_evaluation_params(
         {
             "degre_fit_pwm": fit_degree,
-            "facteur_couplage_tec": 1.0,
+            "facteur_couplage_tec": float(initial_params.get("facteur_couplage_tec", DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_tec"])),
             **{key: value for key, value in initial_params.items() if key in {"tau_tec_s", *PWM_COEFF_KEYS}},
         },
         fixed_params=fixed_params,
@@ -984,13 +986,14 @@ def calibrate_pwm_model(
         progress_callback(f"Paramètres thermiques figés : alpha={baseline['diffusivite_alpha']:.3f}, h={baseline['coeff_convection_h']:.3e}, Cp={baseline['chaleur_massique_cp']:.4f}")
         progress_callback(f"Équation PWM initiale : {format_pwm_model_equation(baseline)}")
 
-    varying_keys = ["tau_tec_s", "coef_pwm_a0", "coef_pwm_a1"]
+    varying_keys = ["facteur_couplage_tec", "tau_tec_s", "coef_pwm_a0", "coef_pwm_a1"]
     if fit_degree >= 2:
         varying_keys.append("coef_pwm_a2")
     if fit_degree >= 3:
         varying_keys.append("coef_pwm_a3")
 
     regularization_scales = {
+        "facteur_couplage_tec": 0.2,
         "tau_tec_s": 10.0,
         "coef_pwm_a0": 0.03,
         "coef_pwm_a1": 0.04,
@@ -1006,9 +1009,8 @@ def calibrate_pwm_model(
             fixed_params=baseline,
         )
         trial["degre_fit_pwm"] = fit_degree
-        trial["facteur_couplage_tec"] = 1.0
 
-        if trial["tau_tec_s"] < 0 or not _is_pwm_model_physical(trial):
+        if trial["facteur_couplage_tec"] <= 0 or trial["tau_tec_s"] < 0 or not _is_pwm_model_physical(trial):
             return 1e12
 
         rmse = evaluate_rmse(tec_experiments, **trial)
@@ -1025,7 +1027,7 @@ def calibrate_pwm_model(
             progress_callback(
                 "Fit PWM "
                 f"{optimization_state['count']:03d} | RMSE={rmse:.3f} °C | "
-                f"tau={trial['tau_tec_s']:.2f} s | {format_pwm_model_equation(trial)}"
+                f"gain={trial['facteur_couplage_tec']:.3f} | tau={trial['tau_tec_s']:.2f} s | {format_pwm_model_equation(trial)}"
             )
         return rmse**2 + regularization
 
@@ -1043,7 +1045,6 @@ def calibrate_pwm_model(
         fixed_params=baseline,
     )
     best_for_eval["degre_fit_pwm"] = fit_degree
-    best_for_eval["facteur_couplage_tec"] = 1.0
 
     rmse_after = evaluate_rmse(tec_experiments, **best_for_eval)
     usable_solution = math.isfinite(float(result.fun)) and rmse_after <= baseline_rmse + 1e-12
@@ -1093,7 +1094,7 @@ def calibrate_pwm_model(
             "chaleur_massique_cp": round(best_for_eval["chaleur_massique_cp"], 4),
             "facteur_couplage_perturbation": round(best_for_eval["facteur_couplage_perturbation"], 3),
             "constante_temps_perturbation_s": round(best_for_eval["tau_perturbation_s"], 2),
-            "facteur_couplage_tec": 1.0,
+            "facteur_couplage_tec": round(best_for_eval["facteur_couplage_tec"], 3),
             "constante_temps_tec_s": round(best_for_eval["tau_tec_s"], 2),
             "degre_fit_pwm": int(best_for_eval["degre_fit_pwm"]),
             "coef_pwm_a0": round(best_for_eval["coef_pwm_a0"], 8),
@@ -1115,7 +1116,15 @@ def _format_experiment_line(exp: ThermalExperiment) -> str:
 
 def write_calibration_file(report: dict, output_path: Path = OUTPUT_FILE) -> Path:
     payload = {"parametres": report["parametres"], "calibration": report}
-    output_path.write_text(json.dumps(payload, indent=4, ensure_ascii=False), encoding="utf-8")
+    output_path = Path(output_path)
+    payload_json = json.dumps(payload, indent=4, ensure_ascii=False)
+
+    output_path.write_text(payload_json, encoding="utf-8")
+
+    default_sync_path = OUTPUT_FILE.resolve(strict=False)
+    if output_path.resolve(strict=False) != default_sync_path:
+        OUTPUT_FILE.write_text(payload_json, encoding="utf-8")
+
     return output_path
 
 
@@ -1181,8 +1190,14 @@ def launch_gui() -> None:
     perturb_downsample_var = tk.IntVar(value=50)
     tec_downsample_var = tk.IntVar(value=10)
     pwm_fit_degree_var = tk.IntVar(value=3)
+
+    persisted_initial_params = build_evaluation_params(load_fixed_parameters_from_json(DEFAULT_FIXED_PARAMS_FILE))
+    optimizer_initial_values = {
+        key: float(persisted_initial_params.get(key, DEFAULT_OPTIMIZER_INITIALS[key]))
+        for key in DEFAULT_OPTIMIZER_INITIALS
+    }
     optimizer_initial_vars = {
-        key: tk.DoubleVar(value=float(DEFAULT_OPTIMIZER_INITIALS[key]))
+        key: tk.DoubleVar(value=optimizer_initial_values[key])
         for key in DEFAULT_OPTIMIZER_INITIALS
     }
     optimizer_variation_vars = {
@@ -1210,7 +1225,9 @@ def launch_gui() -> None:
         "• Perturb/TEC max time (s) : limite la durée maximale analysée dans chaque CSV pour couper la queue inutile des essais.\n"
         "• Perturb/TEC downsample : sous-échantillonne les points lus pour accélérer l'optimisation (plus grand = plus rapide, mais moins fin).\n"
         "• Degré fit PWM : choisit si la loi PWM→W est linéaire (1), quadratique (2) ou cubique (3).\n"
-        "• Réglages coeffs plaque… : ouvre un menu séparé pour fixer les valeurs initiales et le ± % max de α, h et Cp avant l'optimisation."
+        "• Réglages coeffs plaque… : ouvre un menu séparé pour fixer les valeurs initiales et le ± % max de α, h et Cp avant l'optimisation.\n"
+        "• Le RMSE est calculé surtout sur T2/T3 (plus robustes) ; T1 près de la source sert mieux comme vérification visuelle.\n"
+        "• Les gains/cst de temps des branches (perturbation/TEC) sont maintenant auto-ajustés en arrière-plan pour éviter de bloquer le RMSE autour de valeurs trop hautes."
     )
 
     help_label = ttk.Label(
@@ -1359,6 +1376,20 @@ def launch_gui() -> None:
                 button.configure(state=state)
         root.after(0, _apply)
 
+    def apply_calibrated_params_to_ui(report: dict, json_path: Path | None = None) -> None:
+        merged_params = build_evaluation_params(report.get("parametres", {}))
+
+        def _apply() -> None:
+            for key, var in optimizer_initial_vars.items():
+                if key in merged_params:
+                    value = float(merged_params[key])
+                    var.set(value)
+                    DEFAULT_OPTIMIZER_INITIALS[key] = value
+            if json_path is not None:
+                fixed_params_var.set(str(json_path))
+
+        root.after(0, _apply)
+
     def collect_settings() -> tuple[Path | None, Path | None, Path, Path | None, float, float, int, int, int, dict[str, float], dict[str, float]]:
         perturb_dir = None
         tec_dir = None
@@ -1464,7 +1495,9 @@ def launch_gui() -> None:
                     )
 
                 json_path = write_calibration_file(report, output_path=output_path)
+                apply_calibrated_params_to_ui(report, json_path)
 
+                append_log("Les paramètres initiaux de l'interface ont été mis à jour avec le dernier résultat.")
                 append_log(f"Branches utilisées : {', '.join(report['branches_utilisees'])}")
                 append_log(f"Essais utilisés     : {report['nombre_essais']}")
                 append_log(f"RMSE avant          : {report['rmse_avant_C']:.3f} °C")
