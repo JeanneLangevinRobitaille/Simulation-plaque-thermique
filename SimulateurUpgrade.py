@@ -1,3 +1,4 @@
+import os
 import sys
 import json
 import time
@@ -14,13 +15,75 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QScrollArea, QMessageBox, QProgressBar,
                              QGroupBox, QSlider, QLineEdit,
                              QSizePolicy, QComboBox, QListView)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QRect, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 import pyqtgraph as pg
-import pyqtgraph.opengl as gl
+
+try:
+    import pyqtgraph.opengl as gl
+    OPENGL_DISPONIBLE = True
+except Exception:
+    gl = None
+    OPENGL_DISPONIBLE = False
 
 AUTO_CALIBRATION_JSON = Path(__file__).resolve().parent / "TestsAndData" / "parametres_calibres_combinee.json"
 AUTO_CALIBRATION_CHECK_INTERVAL_MS = 2000
+DEFAULT_SCREEN_GEOMETRY = QRect(0, 0, 1366, 768)
+
+
+def obtenir_geometrie_ecran_disponible(widget=None):
+    geometrie = None
+    ecran = None
+
+    if widget is not None:
+        try:
+            ecran = widget.screen()
+        except Exception:
+            ecran = None
+
+        if ecran is None:
+            try:
+                centre = widget.mapToGlobal(widget.rect().center())
+                ecran = QApplication.screenAt(centre)
+            except Exception:
+                ecran = None
+
+    if ecran is None:
+        try:
+            ecran = QApplication.primaryScreen()
+        except Exception:
+            ecran = None
+
+    if ecran is not None:
+        try:
+            geometrie = ecran.availableGeometry()
+            if geometrie is None or geometrie.width() <= 0 or geometrie.height() <= 0:
+                geometrie = ecran.geometry()
+        except Exception:
+            geometrie = None
+
+    if geometrie is None or geometrie.width() <= 0 or geometrie.height() <= 0:
+        geometrie = QRect(DEFAULT_SCREEN_GEOMETRY)
+
+    return geometrie
+
+
+def calculer_geometrie_fenetre_initiale(geometrie_ecran):
+    largeur_ecran = max(520, int(geometrie_ecran.width()))
+    hauteur_ecran = max(420, int(geometrie_ecran.height()))
+    petit_ecran = largeur_ecran < 1366 or hauteur_ecran < 820
+
+    largeur_max = max(480, largeur_ecran - 16)
+    hauteur_max = max(360, hauteur_ecran - 16)
+    largeur_cible = int(round(largeur_ecran * (0.94 if petit_ecran else 0.80)))
+    hauteur_cible = int(round(hauteur_ecran * (0.94 if petit_ecran else 0.82)))
+
+    largeur = max(min(720, largeur_max), min(largeur_cible, largeur_max))
+    hauteur = max(min(520, hauteur_max), min(hauteur_cible, hauteur_max))
+
+    x = geometrie_ecran.x() + max(0, (largeur_ecran - largeur) // 2)
+    y = geometrie_ecran.y() + max(0, (hauteur_ecran - hauteur) // 2)
+    return QRect(x, y, largeur, hauteur)
 
 # ==============================================================================
 # WIDGET PERSONNALISÉ : Le Slider "à la Desmos"
@@ -30,8 +93,10 @@ class SliderWithValue(QWidget):
         super().__init__(parent)
         self.decimals = decimals
         self.scientific = scientific
-        self.min_val = min_val
-        self.max_val = max_val
+        self.min_val = float(min_val)
+        self.max_val = float(max_val)
+        if np.isclose(self.max_val, self.min_val):
+            self.max_val = self.min_val + 1.0
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -40,7 +105,7 @@ class SliderWithValue(QWidget):
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(0, 10000)
         self.slider.setTickPosition(QSlider.TickPosition.NoTicks)
-        self.slider_value = int((default_val - min_val) / (max_val - min_val) * 10000)
+        self.slider_value = self._convertir_valeur_vers_slider(default_val)
         self.slider.setValue(self.slider_value)
         self.slider.setStyleSheet("""
             QSlider::groove:horizontal { border: none; height: 4px; background: #334155; border-radius: 2px; }
@@ -65,6 +130,13 @@ class SliderWithValue(QWidget):
         layout.addWidget(self.slider, 1)
         layout.addWidget(self.value_input, 0)
     
+    def _convertir_valeur_vers_slider(self, valeur):
+        plage = self.max_val - self.min_val
+        if abs(plage) < 1e-12:
+            return 0
+        ratio = (float(valeur) - self.min_val) / plage
+        return int(np.clip(round(ratio * 10000), 0, 10000))
+
     def on_slider_changed(self):
         self.update_value_label()
     
@@ -72,7 +144,7 @@ class SliderWithValue(QWidget):
         try:
             nouveau_val = float(self.value_input.text().replace(',', '.'))
             if self.min_val <= nouveau_val <= self.max_val:
-                slider_val = int((nouveau_val - self.min_val) / (self.max_val - self.min_val) * 10000)
+                slider_val = self._convertir_valeur_vers_slider(nouveau_val)
                 self.slider.blockSignals(True)
                 self.slider.setValue(slider_val)
                 self.slider.blockSignals(False)
@@ -95,7 +167,7 @@ class SliderWithValue(QWidget):
         return self.min_val + (slider_val / 10000) * (self.max_val - self.min_val)
     
     def setValue(self, val):
-        self.slider_value = int((val - self.min_val) / (self.max_val - self.min_val) * 10000)
+        self.slider_value = self._convertir_valeur_vers_slider(val)
         self.slider.blockSignals(True)
         self.slider.setValue(self.slider_value)
         self.slider.blockSignals(False)
@@ -578,7 +650,28 @@ def convertir_commande_perturbation_vers_puissance(valeur_commande, params):
         return max(0.0, float(valeur_commande))
     return convertir_tension_vers_puissance_perturbation(valeur_commande, params)
 
-class StableGLViewWidget(gl.GLViewWidget):
+
+class _NullGLItem:
+    def setGLOptions(self, *_args, **_kwargs):
+        return None
+
+    def setData(self, *_args, **_kwargs):
+        return None
+
+    def scale(self, *_args, **_kwargs):
+        return None
+
+    def translate(self, *_args, **_kwargs):
+        return None
+
+    def setSize(self, *_args, **_kwargs):
+        return None
+
+    def resetTransform(self):
+        return None
+
+
+class StableGLViewWidget(gl.GLViewWidget if OPENGL_DISPONIBLE else QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.lock_2d_interaction = False
@@ -700,30 +793,41 @@ class SimulationThread(QThread):
         try:
             params = dict(self.parametres)
             resolution = int(params["resolution_grille"])
+            largeur_x_mm = float(params["largeur_x_mm"])
+            longueur_y_mm = float(params["longueur_y_mm"])
+            temperature_ambiante = float(params["temperature_ambiante_C"])
+            diffusivite_alpha = float(params["diffusivite_alpha"])
+            masse_volumique_rho = float(params["masse_volumique_rho"])
+            chaleur_massique_cp = float(params["chaleur_massique_cp"])
+            epaisseur_mm = float(params["epaisseur_mm"])
+            coeff_convection_h = float(params["coeff_convection_h"])
+            temps_total_s = float(params["temps_total_s"])
 
-            vecteur_x = np.linspace(-params["largeur_x_mm"]/2, params["largeur_x_mm"]/2, resolution + 1)
-            vecteur_y = np.linspace(0, params["longueur_y_mm"], resolution + 1)
-            grille_X, grille_Y = np.meshgrid(vecteur_x, vecteur_y)
+            pas_x = largeur_x_mm / resolution
+            pas_y = longueur_y_mm / resolution
 
-            pas_x = params["largeur_x_mm"] / resolution
-            pas_y = params["longueur_y_mm"] / resolution
-
-            limite_stabilite = 0.5 / (params["diffusivite_alpha"] * ((1/pas_x**2) + (1/pas_y**2)))
-            pas_temps = 0.2 * min(pas_x, pas_y)**2 / params["diffusivite_alpha"]
+            limite_stabilite = 0.5 / (diffusivite_alpha * ((1 / pas_x**2) + (1 / pas_y**2)))
+            pas_temps = 0.2 * min(pas_x, pas_y)**2 / diffusivite_alpha
             pas_temps = min(pas_temps, limite_stabilite)
 
-            volume_module_tec = (2 * pas_x) * (2 * pas_y) * params["epaisseur_mm"]
+            volume_module_tec = (2 * pas_x) * (2 * pas_y) * epaisseur_mm
+            gain_temperature_tec = pas_temps / max(masse_volumique_rho * chaleur_massique_cp * volume_module_tec, 1e-12)
+            gain_temperature_resistance = pas_temps / max(masse_volumique_rho * chaleur_massique_cp * epaisseur_mm * pas_x * pas_y, 1e-12)
 
-            cst_diffusion_x = params["diffusivite_alpha"] * pas_temps / pas_x**2
-            cst_diffusion_y = params["diffusivite_alpha"] * pas_temps / pas_y**2
+            cst_diffusion_x = diffusivite_alpha * pas_temps / pas_x**2
+            cst_diffusion_y = diffusivite_alpha * pas_temps / pas_y**2
+            cst_perte_convection = coeff_convection_h * pas_temps / (masse_volumique_rho * chaleur_massique_cp * epaisseur_mm)
 
-            cst_perte_convection = params["coeff_convection_h"] * pas_temps / (params["masse_volumique_rho"] * params["chaleur_massique_cp"] * params["epaisseur_mm"])
+            forme_grille = (resolution + 1, resolution + 1)
+            matrice_T = np.full(forme_grille, temperature_ambiante, dtype=np.float32)
+            matrice_T_suivante = np.empty_like(matrice_T)
+            tampon_diffusion = np.empty((resolution - 1, resolution - 1), dtype=np.float32)
+            tampon_secondaire = np.empty_like(tampon_diffusion)
 
-            matrice_T = np.full_like(grille_X, params["temperature_ambiante_C"], dtype=np.float32)
-            matrice_T_suivante = matrice_T.copy()
+            demi_largeur = largeur_x_mm / 2.0
 
             def coord_x_vers_indice(coord_x):
-                indice = int(round((coord_x + params["largeur_x_mm"]/2) / pas_x))
+                indice = int(round((coord_x + demi_largeur) / pas_x))
                 return int(np.clip(indice, 0, resolution))
 
             def coord_y_vers_indice(coord_y):
@@ -779,6 +883,9 @@ class SimulationThread(QThread):
             calculs_par_actualisation = 150
             temps_ecoule = 0.0
             compteur_images = 0
+            dernier_progression = -1
+            intervalle_min_emission_ui_s = 1.0 / 30.0
+            dernier_emit_ui = time.perf_counter()
 
             historique_temps = [0.0]
             historique_T1 = [float(matrice_T[idx_y_T1, idx_x_T1])]
@@ -800,7 +907,7 @@ class SimulationThread(QThread):
                 self.error_signal.emit(message)
                 return
 
-            while self.en_cours_d_execution and temps_ecoule < params["temps_total_s"]:
+            while self.en_cours_d_execution and temps_ecoule < temps_total_s:
 
                 while self.en_pause and self.en_cours_d_execution:
                     self.msleep(50)
@@ -845,60 +952,71 @@ class SimulationThread(QThread):
 
                 commande_perturbation = max(0.0, commande_perturbation)
                 puissance_tec_cible = facteur_couplage_tec * self.puissance_dynamique
-
-                denominateur_resistance = (
-                    params["masse_volumique_rho"] * params["chaleur_massique_cp"] *
-                    params["epaisseur_mm"] * pas_x * pas_y
-                )
+                coeff_lag_tec = min(1.0, pas_temps / constante_temps_tec_s) if constante_temps_tec_s > 0 else 1.0
+                coeff_lag_resistance = min(1.0, pas_temps / self.constante_temps_perturbation_s) if self.constante_temps_perturbation_s > 0 else 1.0
+                fin_perturbation_s = debut_perturbation_s + duree_perturbation_s
+                params_perturb = {
+                    "mode_commande_perturbation": mode_commande_perturbation,
+                    "valeur_resistance_ohm": params["valeur_resistance_ohm"],
+                    "facteur_couplage_perturbation": self.facteur_couplage_perturbation,
+                }
+                puissance_resistance_active = convertir_commande_perturbation_vers_puissance(commande_perturbation, params_perturb)
 
                 for _ in range(calculs_par_actualisation):
-                    if temps_ecoule >= params["temps_total_s"]:
+                    if temps_ecoule >= temps_total_s:
                         break
 
                     if constante_temps_tec_s > 0:
-                        coeff_lag_tec = min(1.0, pas_temps / constante_temps_tec_s)
                         self.puissance_tec_effective += (
                             puissance_tec_cible - self.puissance_tec_effective
                         ) * coeff_lag_tec
                     else:
                         self.puissance_tec_effective = puissance_tec_cible
 
-                    puissance_volumique_tec = self.puissance_tec_effective / volume_module_tec
-                    ajout_temp_tec = (puissance_volumique_tec * pas_temps) / (params["masse_volumique_rho"] * params["chaleur_massique_cp"])
+                    ajout_temp_tec = self.puissance_tec_effective * gain_temperature_tec
 
                     perturbation_active = (
                         duree_perturbation_s > 0.0
-                        and debut_perturbation_s <= temps_ecoule < (debut_perturbation_s + duree_perturbation_s)
+                        and debut_perturbation_s <= temps_ecoule < fin_perturbation_s
                     )
-                    commande_perturb_active = commande_perturbation if perturbation_active else 0.0
-                    params_perturb = dict(params)
-                    params_perturb["mode_commande_perturbation"] = mode_commande_perturbation
-                    params_perturb["facteur_couplage_perturbation"] = self.facteur_couplage_perturbation
-                    puissance_resistance_cible = convertir_commande_perturbation_vers_puissance(commande_perturb_active, params_perturb)
+                    puissance_resistance_cible = puissance_resistance_active if perturbation_active else 0.0
 
                     if self.constante_temps_perturbation_s > 0:
-                        coeff_lag_resistance = min(1.0, pas_temps / self.constante_temps_perturbation_s)
                         self.puissance_resistance_effective += (
                             puissance_resistance_cible - self.puissance_resistance_effective
                         ) * coeff_lag_resistance
                     else:
                         self.puissance_resistance_effective = puissance_resistance_cible
 
-                    ajout_temp_resistance = (self.puissance_resistance_effective * pas_temps) / denominateur_resistance
+                    ajout_temp_resistance = self.puissance_resistance_effective * gain_temperature_resistance
 
-                    matrice_T_suivante[1:-1,1:-1] = matrice_T[1:-1,1:-1] + (
-                        cst_diffusion_x * (matrice_T[1:-1,2:] - 2*matrice_T[1:-1,1:-1] + matrice_T[1:-1,:-2]) +
-                        cst_diffusion_y * (matrice_T[2:,1:-1] - 2*matrice_T[1:-1,1:-1] + matrice_T[:-2,1:-1])
-                    )
-                    matrice_T_suivante[1:-1,1:-1] -= cst_perte_convection * (matrice_T[1:-1,1:-1] - params["temperature_ambiante_C"])
+                    centre = matrice_T[1:-1, 1:-1]
+                    suiv = matrice_T_suivante[1:-1, 1:-1]
+                    np.copyto(suiv, centre)
+
+                    np.multiply(centre, -2.0, out=tampon_secondaire)
+
+                    np.add(matrice_T[1:-1, 2:], matrice_T[1:-1, :-2], out=tampon_diffusion)
+                    np.add(tampon_diffusion, tampon_secondaire, out=tampon_diffusion)
+                    np.multiply(tampon_diffusion, cst_diffusion_x, out=tampon_diffusion)
+                    suiv += tampon_diffusion
+
+                    np.add(matrice_T[2:, 1:-1], matrice_T[:-2, 1:-1], out=tampon_diffusion)
+                    np.add(tampon_diffusion, tampon_secondaire, out=tampon_diffusion)
+                    np.multiply(tampon_diffusion, cst_diffusion_y, out=tampon_diffusion)
+                    suiv += tampon_diffusion
+
+                    np.subtract(centre, temperature_ambiante, out=tampon_diffusion)
+                    np.multiply(tampon_diffusion, cst_perte_convection, out=tampon_diffusion)
+                    suiv -= tampon_diffusion
 
                     matrice_T_suivante[zone_tec] += ajout_temp_tec
                     matrice_T_suivante[zone_res] += ajout_temp_resistance
 
-                    matrice_T_suivante[0,:] = matrice_T_suivante[1,:]
-                    matrice_T_suivante[-1,:] = matrice_T_suivante[-2,:]
-                    matrice_T_suivante[:,0] = matrice_T_suivante[:,1]
-                    matrice_T_suivante[:,-1] = matrice_T_suivante[:,-2]
+                    matrice_T_suivante[0, :] = matrice_T_suivante[1, :]
+                    matrice_T_suivante[-1, :] = matrice_T_suivante[-2, :]
+                    matrice_T_suivante[:, 0] = matrice_T_suivante[:, 1]
+                    matrice_T_suivante[:, -1] = matrice_T_suivante[:, -2]
 
                     matrice_T, matrice_T_suivante = matrice_T_suivante, matrice_T
                     temps_ecoule += pas_temps
@@ -908,19 +1026,25 @@ class SimulationThread(QThread):
                 historique_T2.append(matrice_T[idx_y_T2, idx_x_T2])
                 historique_T3.append(matrice_T[idx_y_T3, idx_x_T3])
 
-                self.progress_signal.emit(int((temps_ecoule / params["temps_total_s"]) * 100))
+                progression = int((temps_ecoule / temps_total_s) * 100)
+                if progression != dernier_progression:
+                    self.progress_signal.emit(progression)
+                    dernier_progression = progression
                 compteur_images += 1
                 if compteur_images % max(1, int(params["intervalle_affichage"])) == 0:
-                    self.update_signal.emit(
-                        temps_ecoule,
-                        matrice_T.copy(),
-                        matrice_T[idx_y_T1, idx_x_T1],
-                        matrice_T[idx_y_T2, idx_x_T2],
-                        matrice_T[idx_y_T3, idx_x_T3],
-                    )
+                    horodatage_ui = time.perf_counter()
+                    if (horodatage_ui - dernier_emit_ui) >= intervalle_min_emission_ui_s or temps_ecoule >= temps_total_s:
+                        self.update_signal.emit(
+                            temps_ecoule,
+                            matrice_T.copy(),
+                            matrice_T[idx_y_T1, idx_x_T1],
+                            matrice_T[idx_y_T2, idx_x_T2],
+                            matrice_T[idx_y_T3, idx_x_T3],
+                        )
+                        dernier_emit_ui = horodatage_ui
 
             resultats_finaux = {"temps": historique_temps, "T1": historique_T1, "T2": historique_T2, "T3": historique_T3}
-            if temps_ecoule >= params["temps_total_s"]:
+            if temps_ecoule >= temps_total_s:
                 self.progress_signal.emit(100)
             self.finished_signal.emit(params, resultats_finaux)
         except Exception:
@@ -941,8 +1065,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Simulateur de plaque asservie en température")
         
         self.demarrer_en_plein_ecran = False
+        geometrie_ecran = obtenir_geometrie_ecran_disponible(self)
+        self._petit_ecran = geometrie_ecran.width() < 1366 or geometrie_ecran.height() < 820
 
-        dialog = QMessageBox()
+        dialog = QMessageBox(self)
         dialog.setWindowTitle("Taille de la fenêtre")
         dialog.setText("Quelle taille de fenêtre voulez-vous ?")
         dialog.setIcon(QMessageBox.Icon.Question)
@@ -958,14 +1084,7 @@ class MainWindow(QMainWindow):
         self.demarrer_en_plein_ecran = (dialog.clickedButton() == btn_plein)
 
         if not self.demarrer_en_plein_ecran:
-            ecran = QApplication.primaryScreen()
-            geometrie_ecran = ecran.geometry()
-            largeur_80 = int(geometrie_ecran.width() * 0.8)
-            hauteur_80 = int(geometrie_ecran.height() * 0.8)
-            self.resize(largeur_80, hauteur_80)
-            x = (geometrie_ecran.width() - largeur_80) // 2
-            y = (geometrie_ecran.height() - hauteur_80) // 2
-            self.move(x, y)
+            self.setGeometry(calculer_geometrie_fenetre_initiale(geometrie_ecran))
 
         self.donnees_entree = None
         self.donnees_resultats = None
@@ -990,6 +1109,12 @@ class MainWindow(QMainWindow):
         self.annotations_axes_3d = {}
         self._horodatage_cpu_precedent = time.perf_counter()
         self._temps_cpu_precedent = time.process_time()
+        self._plein_ecran_actif = False
+        self._fullscreen_transition_active = False
+        self._geometrie_avant_plein_ecran = None
+        self._dernier_rendu_ui = 0.0
+        self._signature_taille_ecran = None
+        self._intervalle_min_rendu_ui_s = 1.0 / (24.0 if self._petit_ecran else 30.0)
 
         positions_couleurs = np.linspace(0.0, 1.0, 5)
         valeurs_rgb = np.array([
@@ -1000,11 +1125,19 @@ class MainWindow(QMainWindow):
             [255, 0, 0, 255]   
         ], dtype=np.ubyte)
         self.palette_couleurs = pg.ColorMap(positions_couleurs, valeurs_rgb)
+        self._palette_lookup = self.palette_couleurs.getLookupTable(0.0, 1.0, 256, alpha=True).astype(np.float32) / 255.0
+        self._couleurs_capteurs = np.array([
+            [59/255, 130/255, 246/255, 1.0],
+            [245/255, 158/255, 11/255, 1.0],
+            [16/255, 185/255, 129/255, 1.0]
+        ], dtype=np.float32)
 
         widget_central = QWidget()
         self.setCentralWidget(widget_central)
         layout_principal = QVBoxLayout(widget_central)
         separateur_principal = QSplitter(Qt.Orientation.Horizontal)
+        separateur_principal.setChildrenCollapsible(False)
+        self.separateur_principal = separateur_principal
         layout_principal.addWidget(separateur_principal)
 
         panneau_gauche = QWidget()
@@ -1286,6 +1419,8 @@ class MainWindow(QMainWindow):
         layout_droit.setContentsMargins(10, 10, 10, 10)
         layout_droit.setSpacing(10)
         separateur_graphiques = QSplitter(Qt.Orientation.Vertical)
+        separateur_graphiques.setChildrenCollapsible(False)
+        self.separateur_graphiques = separateur_graphiques
         
         container_3d = QFrame()
         container_3d.setObjectName("ThreeDPanel")
@@ -1316,6 +1451,8 @@ class MainWindow(QMainWindow):
                 font-weight: 700;
             }
         """)
+        self.label_ressources.setMinimumWidth(160)
+        self.label_ressources.setMinimumHeight(52)
         layout_infos_3d.addWidget(self.label_ressources, alignment=Qt.AlignmentFlag.AlignLeft)
         layout_infos_3d.addStretch()
 
@@ -1398,33 +1535,42 @@ class MainWindow(QMainWindow):
             azimuth=self.camera_azimuth_initiale,
         )
         self.vue_3d.setCameraParams(fov=self.perspective_fov)
-        self.grille_3d = gl.GLGridItem()
-        self.grille_3d.scale(10, 10, 10)
-        self.vue_3d.addItem(self.grille_3d)
 
-        self.axes_3d = gl.GLAxisItem()
-        self.axes_3d.setSize(x=61.5, y=117.5, z=25.0)
-        self.axes_3d.translate(-30.75, 0.0, 0.0)
-        self.vue_3d.addItem(self.axes_3d)
-        
-        self.surface_thermique = gl.GLSurfacePlotItem(computeNormals=True, smooth=True, shader='shaded')
-        test_data = np.ones((20, 20), dtype=np.float32) * 20.0
-        test_x = np.linspace(0, 100, 20)
-        test_y = np.linspace(0, 100, 20)
-        test_norm = np.linspace(0, 1, 20)
-        test_colors = np.zeros((20, 20, 4), dtype=np.float32)
-        for i in range(20):
-            ratio = i / 19.0
-            test_colors[i, :] = self.palette_couleurs.map(ratio) / 255.0
-        self.surface_thermique.setData(x=test_x, y=test_y, z=test_data, colors=test_colors)
-        self.vue_3d.addItem(self.surface_thermique)
+        if OPENGL_DISPONIBLE:
+            self.grille_3d = gl.GLGridItem()
+            self.grille_3d.scale(10, 10, 10)
+            self.vue_3d.addItem(self.grille_3d)
 
-        self.scatter_capteurs = gl.GLScatterPlotItem(size=12, pxMode=True)
-        self.vue_3d.addItem(self.scatter_capteurs)
+            self.axes_3d = gl.GLAxisItem()
+            self.axes_3d.setSize(x=61.5, y=117.5, z=25.0)
+            self.axes_3d.translate(-30.75, 0.0, 0.0)
+            self.vue_3d.addItem(self.axes_3d)
+            
+            self.surface_thermique = gl.GLSurfacePlotItem(computeNormals=True, smooth=True, shader='shaded')
+            self.surface_thermique.setGLOptions('opaque')
+            test_data = np.ones((20, 20), dtype=np.float32) * 20.0
+            test_x = np.linspace(0, 100, 20)
+            test_y = np.linspace(0, 100, 20)
+            test_colors = np.zeros((20, 20, 4), dtype=np.float32)
+            for i in range(20):
+                ratio = i / 19.0
+                test_colors[i, :] = self.palette_couleurs.map(ratio) / 255.0
+            self.surface_thermique.setData(x=test_x, y=test_y, z=test_data, colors=test_colors)
+            self.vue_3d.addItem(self.surface_thermique)
+
+            self.scatter_capteurs = gl.GLScatterPlotItem(size=12, pxMode=True)
+            self.scatter_capteurs.setGLOptions('translucent')
+            self.vue_3d.addItem(self.scatter_capteurs)
+        else:
+            self.grille_3d = _NullGLItem()
+            self.axes_3d = _NullGLItem()
+            self.surface_thermique = _NullGLItem()
+            self.scatter_capteurs = _NullGLItem()
 
         layout_3d_h.addWidget(self.vue_3d, stretch=1)
 
         container_legende = QWidget()
+        self._container_legende = container_legende
         container_legende.setFixedWidth(80) 
         layout_legende = QVBoxLayout(container_legende)
         layout_legende.setContentsMargins(5, 30, 15, 30)
@@ -1470,6 +1616,8 @@ class MainWindow(QMainWindow):
         self.graphique_2d.showGrid(x=True, y=True, alpha=0.3)
         self.graphique_2d.setLabel('left', 'Température', units='°C')
         self.graphique_2d.setLabel('bottom', 'Temps', units='s')
+        self.graphique_2d.setClipToView(True)
+        self.graphique_2d.setDownsampling(auto=True, mode='peak')
         
         self.courbe_t1 = self.graphique_2d.plot(pen=pg.mkPen('#3B82F6', width=3), name='T1 (Bleu)')
         self.courbe_t2 = self.graphique_2d.plot(pen=pg.mkPen('#F59E0B', width=3), name='T2 (Orange)')
@@ -1535,7 +1683,7 @@ class MainWindow(QMainWindow):
         
         separateur_principal.addWidget(panneau_gauche)
         separateur_principal.addWidget(panneau_droit)
-        separateur_principal.setSizes([380, 1120])
+        self.adapter_disposition_aux_ecrans(force=True)
         self.actualiser_mode_commande_tec(initialisation=True)
         self.actualiser_mode_commande_perturbation(initialisation=True)
         self.actualiser_resume_commande_tec()
@@ -1692,36 +1840,51 @@ class MainWindow(QMainWindow):
 
     def obtenir_ram_processus_mo(self):
         try:
-            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
-                _fields_ = [
-                    ("cb", wintypes.DWORD),
-                    ("PageFaultCount", wintypes.DWORD),
-                    ("PeakWorkingSetSize", ctypes.c_size_t),
-                    ("WorkingSetSize", ctypes.c_size_t),
-                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                    ("PagefileUsage", ctypes.c_size_t),
-                    ("PeakPagefileUsage", ctypes.c_size_t),
-                ]
-
-            get_process_memory_info = ctypes.windll.psapi.GetProcessMemoryInfo
-            get_process_memory_info.argtypes = [
-                wintypes.HANDLE,
-                ctypes.POINTER(PROCESS_MEMORY_COUNTERS),
-                wintypes.DWORD,
-            ]
-            get_process_memory_info.restype = wintypes.BOOL
-
-            compteurs = PROCESS_MEMORY_COUNTERS()
-            compteurs.cb = ctypes.sizeof(compteurs)
-            handle = ctypes.windll.kernel32.GetCurrentProcess()
-            succes = get_process_memory_info(handle, ctypes.byref(compteurs), compteurs.cb)
-            if succes:
-                return compteurs.WorkingSetSize / (1024 ** 2)
+            psutil = __import__("psutil")
+            return psutil.Process().memory_info().rss / (1024 ** 2)
         except Exception:
             pass
+
+        if sys.platform.startswith("win"):
+            try:
+                class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                    _fields_ = [
+                        ("cb", wintypes.DWORD),
+                        ("PageFaultCount", wintypes.DWORD),
+                        ("PeakWorkingSetSize", ctypes.c_size_t),
+                        ("WorkingSetSize", ctypes.c_size_t),
+                        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                        ("PagefileUsage", ctypes.c_size_t),
+                        ("PeakPagefileUsage", ctypes.c_size_t),
+                    ]
+
+                get_process_memory_info = ctypes.windll.psapi.GetProcessMemoryInfo
+                get_process_memory_info.argtypes = [
+                    wintypes.HANDLE,
+                    ctypes.POINTER(PROCESS_MEMORY_COUNTERS),
+                    wintypes.DWORD,
+                ]
+                get_process_memory_info.restype = wintypes.BOOL
+
+                compteurs = PROCESS_MEMORY_COUNTERS()
+                compteurs.cb = ctypes.sizeof(compteurs)
+                handle = ctypes.windll.kernel32.GetCurrentProcess()
+                succes = get_process_memory_info(handle, ctypes.byref(compteurs), compteurs.cb)
+                if succes:
+                    return compteurs.WorkingSetSize / (1024 ** 2)
+            except Exception:
+                pass
+        else:
+            try:
+                import resource
+                utilisation = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                return utilisation / (1024 ** 2) if sys.platform == "darwin" else utilisation / 1024.0
+            except Exception:
+                pass
+
         return 0.0
 
     def mettre_a_jour_ressources_systeme(self):
@@ -1730,7 +1893,8 @@ class MainWindow(QMainWindow):
 
         delta_temps = max(maintenant - self._horodatage_cpu_precedent, 1e-9)
         delta_cpu = max(temps_cpu - self._temps_cpu_precedent, 0.0)
-        cpu_percent = 100.0 * delta_cpu / delta_temps
+        nb_coeurs = max(os.cpu_count() or 1, 1)
+        cpu_percent = min(100.0, max(0.0, 100.0 * delta_cpu / (delta_temps * nb_coeurs)))
         ram_mo = self.obtenir_ram_processus_mo()
 
         self._horodatage_cpu_precedent = maintenant
@@ -2241,6 +2405,7 @@ class MainWindow(QMainWindow):
         self.thread_simulation.finished_signal.connect(self.terminer_simulation)
         self.thread_simulation.error_signal.connect(self.gerer_erreur_simulation)
         self.thread_simulation.finished.connect(self.nettoyer_apres_simulation)
+        self.thread_simulation.finished.connect(self.thread_simulation.deleteLater)
         self.thread_simulation.start()
 
     # --- NOUVEAU: Mettre la simulation en pause/reprise ---
@@ -2311,33 +2476,41 @@ class MainWindow(QMainWindow):
         self.donnees_y_t1.append(temp_T1)
         self.donnees_y_t2.append(temp_T2)
         self.donnees_y_t3.append(temp_T3)
-        self.historique_matrices_3D.append(matrice_temperatures_3d)
+        self.historique_matrices_3D.append(np.asarray(matrice_temperatures_3d, dtype=np.float16))
 
-        self.courbe_t1.setData(self.donnees_temps, self.donnees_y_t1)
-        self.courbe_t2.setData(self.donnees_temps, self.donnees_y_t2)
-        self.courbe_t3.setData(self.donnees_temps, self.donnees_y_t3)
+        maintenant = time.perf_counter()
+        index_maximum = len(self.historique_matrices_3D) - 1
+        rendu_force = index_maximum <= 1 or not self.mode_direct_actif
+        autoriser_rendu = rendu_force or ((maintenant - self._dernier_rendu_ui) >= self._intervalle_min_rendu_ui_s)
+
+        if autoriser_rendu:
+            self.courbe_t1.setData(self.donnees_temps, self.donnees_y_t1, skipFiniteCheck=True)
+            self.courbe_t2.setData(self.donnees_temps, self.donnees_y_t2, skipFiniteCheck=True)
+            self.courbe_t3.setData(self.donnees_temps, self.donnees_y_t3, skipFiniteCheck=True)
 
         self.slider_timeline.setEnabled(True)
         self.btn_play_pause.setEnabled(True)
         self.combo_vitesse.setEnabled(True)
         self.slider_timeline.blockSignals(True)
-        index_maximum = len(self.historique_matrices_3D) - 1
         self.slider_timeline.setMaximum(index_maximum)
-        
+
         if self.mode_direct_actif:
             self.slider_timeline.setValue(index_maximum)
-            self.dessiner_rendu_3d(matrice_temperatures_3d, temps_sim, temp_T1, temp_T2, temp_T3)
+            if autoriser_rendu:
+                self.dessiner_rendu_3d(matrice_temperatures_3d, temps_sim, temp_T1, temp_T2, temp_T3)
+                self._dernier_rendu_ui = maintenant
             self.curseur_temps_2d.hide()
-            
+
         self.slider_timeline.blockSignals(False)
 
     def naviguer_dans_historique(self, index):
-        if not self.historique_matrices_3D: return
+        if not self.historique_matrices_3D:
+            return
         
         index_maximum = len(self.historique_matrices_3D) - 1
         self.mode_direct_actif = (index == index_maximum)
         
-        matrice_historique = self.historique_matrices_3D[index]
+        matrice_historique = np.asarray(self.historique_matrices_3D[index], dtype=np.float32)
         t1 = self.donnees_y_t1[index]
         t2 = self.donnees_y_t2[index]
         t3 = self.donnees_y_t3[index]
@@ -2379,6 +2552,48 @@ class MainWindow(QMainWindow):
     def modifier_vitesse_lecture(self, text):
         vitesses = {"0.5x": 0.5, "1.0x": 1.0, "2.0x": 2.0, "5x": 5.0}
         self.vitesse_lecture = vitesses.get(text, 1.0)
+
+    def adapter_disposition_aux_ecrans(self, force=False):
+        if not hasattr(self, "separateur_principal") or not hasattr(self, "separateur_graphiques"):
+            return
+
+        geometrie = obtenir_geometrie_ecran_disponible(self)
+        largeur_fenetre = max(1, self.width() or geometrie.width())
+        hauteur_fenetre = max(1, self.height() or geometrie.height())
+        petit_ecran = (
+            largeur_fenetre < 1280 or hauteur_fenetre < 760
+            or geometrie.width() < 1366 or geometrie.height() < 820
+        )
+        signature = (
+            largeur_fenetre,
+            hauteur_fenetre,
+            petit_ecran,
+            self.est_en_mode_plein_ecran() if hasattr(self, "est_en_mode_plein_ecran") else False,
+        )
+
+        if not force and getattr(self, "_signature_taille_ecran", None) == signature:
+            return
+
+        self._signature_taille_ecran = signature
+        self._petit_ecran = petit_ecran
+        self._intervalle_min_rendu_ui_s = 1.0 / (20.0 if petit_ecran else 30.0)
+
+        largeur_gauche = int(round(largeur_fenetre * (0.34 if petit_ecran else 0.27)))
+        largeur_gauche = max(300, min(430, largeur_gauche))
+        largeur_droite = max(420, largeur_fenetre - largeur_gauche)
+        self.separateur_principal.setSizes([largeur_gauche, largeur_droite])
+
+        hauteur_haut = int(round(hauteur_fenetre * (0.57 if petit_ecran else 0.62)))
+        hauteur_haut = max(240, min(max(260, hauteur_fenetre - 180), hauteur_haut))
+        hauteur_bas = max(180, hauteur_fenetre - hauteur_haut)
+        self.separateur_graphiques.setSizes([hauteur_haut, hauteur_bas])
+
+        if hasattr(self, "_container_legende"):
+            self._container_legende.setFixedWidth(68 if petit_ecran else 80)
+        if hasattr(self, "barre_controles_vue"):
+            self.barre_controles_vue.setMaximumWidth(270 if petit_ecran else 360)
+        if hasattr(self, "combo_vitesse"):
+            self.combo_vitesse.setMaximumWidth(72 if petit_ecran else 80)
 
     def calculer_distance_camera_compensee(self, distance_base=None, fov=None):
         distance_base = self.camera_distance_actuelle if distance_base is None else float(distance_base)
@@ -2469,34 +2684,93 @@ class MainWindow(QMainWindow):
         self.mettre_a_jour_axes_3d_stables()
         self.mettre_a_jour_legende_axes_3d()
 
+    def _verrouiller_transition_plein_ecran(self, delai_ms=250):
+        self._fullscreen_transition_active = True
+        QTimer.singleShot(delai_ms, lambda: setattr(self, "_fullscreen_transition_active", False))
+
+    def _fermer_popups_combo(self):
+        for nom in ("combo_mode_commande_tec", "combo_degre_fit_pwm", "combo_mode_commande_perturbation", "combo_vitesse"):
+            combo = getattr(self, nom, None)
+            if combo is not None:
+                try:
+                    combo.hidePopup()
+                except Exception:
+                    pass
+
+    def rafraichir_apres_plein_ecran(self):
+        self.mettre_a_jour_bouton_plein_ecran()
+        try:
+            self.adapter_disposition_aux_ecrans(force=True)
+            self.appliquer_mode_camera()
+            self.mettre_a_jour_axes_3d_stables()
+            self.mettre_a_jour_legende_axes_3d()
+            if hasattr(self, "vue_3d"):
+                self.vue_3d.update()
+            if hasattr(self, "graphique_2d"):
+                self.graphique_2d.repaint()
+            self.repaint()
+        except Exception:
+            pass
+
+    def est_en_mode_plein_ecran(self):
+        return bool(getattr(self, "_plein_ecran_actif", False) or self.isFullScreen())
+
     def mettre_a_jour_bouton_plein_ecran(self):
-        est_en_plein_ecran = self.isFullScreen()
+        est_en_plein_ecran = self.est_en_mode_plein_ecran()
         if hasattr(self, "bouton_exit_fullscreen"):
             self.bouton_exit_fullscreen.setVisible(est_en_plein_ecran)
         if hasattr(self, "bouton_fullscreen"):
             self.bouton_fullscreen.setVisible(not est_en_plein_ecran)
 
     def passer_en_plein_ecran(self):
-        if not self.isFullScreen():
-            self.showFullScreen()
-            self.raise_()
-            self.activateWindow()
-        self.mettre_a_jour_bouton_plein_ecran()
+        if self._fullscreen_transition_active or self.est_en_mode_plein_ecran():
+            self.mettre_a_jour_bouton_plein_ecran()
+            return
+
+        self._verrouiller_transition_plein_ecran(320)
+        self._fermer_popups_combo()
+        self._geometrie_avant_plein_ecran = self.geometry()
+
+        geometrie = obtenir_geometrie_ecran_disponible(self)
+
+        self.setUpdatesEnabled(False)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+        self.show()
+        self.setGeometry(geometrie)
+        self.showMaximized()
+        self._plein_ecran_actif = True
+        self.raise_()
+        self.activateWindow()
+        QTimer.singleShot(80, lambda: self.setUpdatesEnabled(True))
+        QTimer.singleShot(100, self.rafraichir_apres_plein_ecran)
 
     def quitter_plein_ecran(self):
-        if self.isFullScreen():
-            self.showNormal()
-            self.raise_()
-            self.activateWindow()
-        self.mettre_a_jour_bouton_plein_ecran()
+        if self._fullscreen_transition_active or not self.est_en_mode_plein_ecran():
+            self.mettre_a_jour_bouton_plein_ecran()
+            return
+
+        self._verrouiller_transition_plein_ecran(320)
+        self._fermer_popups_combo()
+
+        geometrie = self._geometrie_avant_plein_ecran
+        self.setUpdatesEnabled(False)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, False)
+        self.showNormal()
+        if geometrie is not None:
+            self.setGeometry(geometrie)
+        self._plein_ecran_actif = False
+        self.raise_()
+        self.activateWindow()
+        QTimer.singleShot(80, lambda: self.setUpdatesEnabled(True))
+        QTimer.singleShot(100, self.rafraichir_apres_plein_ecran)
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape and self.isFullScreen():
+        if event.key() == Qt.Key.Key_Escape and self.est_en_mode_plein_ecran():
             self.quitter_plein_ecran()
             event.accept()
             return
         if event.key() == Qt.Key.Key_F11:
-            if self.isFullScreen():
+            if self.est_en_mode_plein_ecran():
                 self.quitter_plein_ecran()
             else:
                 self.passer_en_plein_ecran()
@@ -2507,6 +2781,13 @@ class MainWindow(QMainWindow):
     def changeEvent(self, event):
         super().changeEvent(event)
         self.mettre_a_jour_bouton_plein_ecran()
+        if self.isVisible() and not getattr(self, "_fullscreen_transition_active", False):
+            QTimer.singleShot(0, self.rafraichir_apres_plein_ecran)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.isVisible() and not getattr(self, "_fullscreen_transition_active", False):
+            self.adapter_disposition_aux_ecrans(force=False)
 
     def nettoyer_apres_simulation(self):
         self.bouton_demarrer.setEnabled(True)
@@ -2516,6 +2797,8 @@ class MainWindow(QMainWindow):
         self.bouton_arreter.setEnabled(False)
         self.bouton_quicksave.setEnabled(False)
         self.bouton_quicksave.setText("QUICKSAVE (Pause requise)")
+        if self.thread_simulation is not None and not self.thread_simulation.isRunning():
+            self.thread_simulation = None
         self.mettre_a_jour_indicateur_stabilite()
 
     def gerer_erreur_simulation(self, details_erreur):
@@ -2561,22 +2844,24 @@ class MainWindow(QMainWindow):
         
         self.lbl_min_temp.setText(f"{temp_min:.1f} °C")
         self.lbl_max_temp.setText(f"{temp_max:.1f} °C")
+
+        titre_live = f"T={temps_sim:.1f}s  |  T1 (Bleu): {t1:.1f}°C  |  T2 (Orange): {t2:.1f}°C  |  T3 (Vert): {t3:.1f}°C"
+        self.graphique_2d.setTitle(titre_live, color='#38BDF8', size='11pt')
+
+        if not OPENGL_DISPONIBLE:
+            return
         
-        matrice_z_T = matrice_temperatures_3d.T 
-        matrice_normalisee = np.clip((matrice_z_T - temp_min) / (temp_max - temp_min), 0, 1)
-        couleurs_brutes = self.palette_couleurs.map(matrice_normalisee)
-        couleurs_calculees = couleurs_brutes.astype(np.float32) / 255.0
+        matrice_z_T = np.asarray(matrice_temperatures_3d, dtype=np.float32).T
+        matrice_normalisee = np.clip((matrice_z_T - temp_min) / (temp_max - temp_min), 0.0, 1.0)
+        indices_palette = np.clip(np.rint(matrice_normalisee * 255.0), 0, 255).astype(np.uint8)
+        couleurs_calculees = self._palette_lookup[indices_palette]
         
         matrice_z = (matrice_z_T - temp_min) * self.exageration_z
         self.surface_thermique.setData(x=self.grille_x, y=self.grille_y, z=matrice_z, colors=couleurs_calculees)
         self.ajuster_camera_3d(matrice_z)
 
         p = self.params_actuels if self.params_actuels else self.recuperer_parametres_interface()
-        self.mettre_a_jour_axes_3d_stables(p, temp_min, temp_max)
-        self.mettre_a_jour_legende_axes_3d(p, temp_min, temp_max)
 
-        titre_live = f"T={temps_sim:.1f}s  |  T1 (Bleu): {t1:.1f}°C  |  T2 (Orange): {t2:.1f}°C  |  T3 (Vert): {t3:.1f}°C"
-        self.graphique_2d.setTitle(titre_live, color='#38BDF8', size='11pt')
         def coord_vers_indices(x_mm, y_mm):
             idx_x = int(round((x_mm + p["largeur_x_mm"]/2) / self.pas_x))
             idx_y = int(round(y_mm / self.pas_y))
@@ -2599,13 +2884,7 @@ class MainWindow(QMainWindow):
             [x3, y3, calculer_z(x3, y3)]
         ], dtype=np.float32)
         
-        couleurs_capteurs = np.array([
-            [59/255, 130/255, 246/255, 1.0], 
-            [245/255, 158/255, 11/255, 1.0], 
-            [16/255, 185/255, 129/255, 1.0] 
-        ], dtype=np.float32)
-        
-        self.scatter_capteurs.setData(pos=points_capteurs, color=couleurs_capteurs)
+        self.scatter_capteurs.setData(pos=points_capteurs, color=self._couleurs_capteurs)
 
     def terminer_simulation(self, parametres, resultats):
         self.donnees_entree = parametres
@@ -2642,10 +2921,21 @@ class MainWindow(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
+    try:
+        QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+    except Exception:
+        pass
+
+    if os.environ.get("SIMULATEUR_FORCE_SOFTWARE_OPENGL", "").strip().lower() in {"1", "true", "yes", "on"}:
+        try:
+            QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseSoftwareOpenGL, True)
+        except Exception:
+            pass
+
     app = QApplication(sys.argv)
     fenetre_principale = MainWindow()
+    fenetre_principale.show()
     if getattr(fenetre_principale, "demarrer_en_plein_ecran", False):
-        fenetre_principale.showFullScreen()
-    else:
-        fenetre_principale.show()
+        QTimer.singleShot(0, fenetre_principale.passer_en_plein_ecran)
     sys.exit(app.exec())
