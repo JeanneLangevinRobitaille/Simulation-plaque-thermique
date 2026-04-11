@@ -43,8 +43,12 @@ DEFAULT_PWM_MODEL = {
     "coef_pwm_a1": 1.406312e-01,
     "coef_pwm_a2": 9.947817e-04,
     "coef_pwm_a3": 1.703277e-05,
+    "zone_morte_pwm_chauffage_pct": 3.6,
+    "zone_morte_pwm_refroidissement_pct": 3.85,
 }
 PWM_COEFF_KEYS = ("coef_pwm_a0", "coef_pwm_a1", "coef_pwm_a2", "coef_pwm_a3")
+PWM_DEADZONE_KEYS = ("zone_morte_pwm_chauffage_pct", "zone_morte_pwm_refroidissement_pct")
+PWM_BRANCH_COUPLING_KEYS = ("facteur_couplage_tec_chauffage", "facteur_couplage_tec_refroidissement")
 
 BASE_PARAMS = {
     "largeur_x_mm": 61.5,
@@ -74,8 +78,12 @@ OPTIMIZER_PARAMETER_LABELS = {
     "chaleur_massique_cp": "Cp",
     "facteur_couplage_perturbation": "Couplage perturb.",
     "tau_perturbation_s": "τ perturb. (s)",
-    "facteur_couplage_tec": "Couplage TEC",
+    "facteur_couplage_tec": "Couplage TEC moyen",
+    "facteur_couplage_tec_chauffage": "Couplage TEC +",
+    "facteur_couplage_tec_refroidissement": "Couplage TEC -",
     "tau_tec_s": "τ TEC (s)",
+    "zone_morte_pwm_chauffage_pct": "Zone morte PWM + (%)",
+    "zone_morte_pwm_refroidissement_pct": "Zone morte PWM - (%)",
     "coef_pwm_a0": "a0",
     "coef_pwm_a1": "a1",
     "coef_pwm_a2": "a2",
@@ -89,6 +97,8 @@ DEFAULT_OPTIMIZER_INITIALS = {
     "facteur_couplage_perturbation": 0.20,
     "tau_perturbation_s": 8.03,
     "facteur_couplage_tec": 0.60,
+    "facteur_couplage_tec_chauffage": 0.60,
+    "facteur_couplage_tec_refroidissement": 0.60,
     "tau_tec_s": 8.0,
     **DEFAULT_PWM_MODEL,
 }
@@ -100,7 +110,11 @@ DEFAULT_MAX_VARIATION_PCT = {
     "facteur_couplage_perturbation": 40.0,
     "tau_perturbation_s": 100.0,
     "facteur_couplage_tec": 40.0,
+    "facteur_couplage_tec_chauffage": 60.0,
+    "facteur_couplage_tec_refroidissement": 60.0,
     "tau_tec_s": 100.0,
+    "zone_morte_pwm_chauffage_pct": 120.0,
+    "zone_morte_pwm_refroidissement_pct": 120.0,
     "coef_pwm_a0": 100.0,
     "coef_pwm_a1": 100.0,
     "coef_pwm_a2": 200.0,
@@ -114,7 +128,11 @@ ABSOLUTE_PARAMETER_BOUNDS = {
     "facteur_couplage_perturbation": (0.2, 2.5),
     "tau_perturbation_s": (0.0, 60.0),
     "facteur_couplage_tec": (0.2, 2.5),
+    "facteur_couplage_tec_chauffage": (0.2, 3.0),
+    "facteur_couplage_tec_refroidissement": (0.2, 3.0),
     "tau_tec_s": (0.0, 80.0),
+    "zone_morte_pwm_chauffage_pct": (0.0, 12.0),
+    "zone_morte_pwm_refroidissement_pct": (0.0, 12.0),
     "coef_pwm_a0": (0.0, 0.2),
     "coef_pwm_a1": (0.01, 0.3),
     "coef_pwm_a2": (-0.01, 0.01),
@@ -126,6 +144,13 @@ OPTIMIZER_PARAMETER_GROUPS = {
         "diffusivite_alpha",
         "coeff_convection_h",
         "chaleur_massique_cp",
+    ],
+    "TEC asymétrique": [
+        "facteur_couplage_tec_chauffage",
+        "facteur_couplage_tec_refroidissement",
+        "tau_tec_s",
+        "zone_morte_pwm_chauffage_pct",
+        "zone_morte_pwm_refroidissement_pct",
     ],
     "PWM → W (fit TEC)": [
         "coef_pwm_a0",
@@ -145,6 +170,12 @@ PERTURBATION_EXPERIMENT_SPECS = [
 # À remplir si les noms de fichiers TEC n'indiquent pas le PWM.
 TEC_EXPERIMENT_SPECS: list[dict[str, object]] = []
 CALIBRATION_SENSOR_NAMES = ("T2", "T3")
+
+STEADY_STATE_WINDOW_FRACTION = 0.20
+STEADY_STATE_MIN_POINTS = 5
+STEADY_STATE_WEIGHT = 2.4
+WORST_CASE_WEIGHT = 0.35
+CALIBRATION_SCORE_CLIP_C = 12.0
 
 
 ProgressCallback = Callable[[str], None]
@@ -271,33 +302,59 @@ def normalize_pwm_fit_degree(value: float | int | None) -> int:
 def _extract_pwm_model_params(params: dict[str, float] | None = None) -> dict[str, float]:
     model = dict(DEFAULT_PWM_MODEL)
     if params:
-        for key in ("degre_fit_pwm", *PWM_COEFF_KEYS):
+        for key in ("degre_fit_pwm", *PWM_COEFF_KEYS, *PWM_DEADZONE_KEYS):
             if key in params:
                 model[key] = float(params[key])
     model["degre_fit_pwm"] = normalize_pwm_fit_degree(model.get("degre_fit_pwm", 3))
+    for key in PWM_DEADZONE_KEYS:
+        model[key] = float(np.clip(model.get(key, DEFAULT_PWM_MODEL[key]), 0.0, 12.0))
     return model
 
 
-def pwm_percent_to_power_w(pwm_percent: float, params: dict[str, float] | None = None) -> float:
-    pwm = float(np.clip(abs(pwm_percent), 0.0, 100.0))
-    model = _extract_pwm_model_params(params)
+def _get_pwm_deadzone_percent(params: dict[str, float] | None, signed_pwm_percent: float) -> float:
+    if params is None:
+        params = DEFAULT_PWM_MODEL
+    if float(signed_pwm_percent) < 0.0:
+        return float(np.clip(params.get("zone_morte_pwm_refroidissement_pct", DEFAULT_PWM_MODEL["zone_morte_pwm_refroidissement_pct"]), 0.0, 12.0))
+    return float(np.clip(params.get("zone_morte_pwm_chauffage_pct", DEFAULT_PWM_MODEL["zone_morte_pwm_chauffage_pct"]), 0.0, 12.0))
 
-    power_w = model["coef_pwm_a0"] + (model["coef_pwm_a1"] * pwm)
+
+def get_tec_branch_coupling(params: dict[str, float] | None, sign: float) -> float:
+    if params is None:
+        params = DEFAULT_OPTIMIZER_INITIALS
+    generic = float(params.get("facteur_couplage_tec", DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_tec"]))
+    if float(sign) < 0.0:
+        return max(0.0, float(params.get("facteur_couplage_tec_refroidissement", generic)))
+    return max(0.0, float(params.get("facteur_couplage_tec_chauffage", generic)))
+
+
+def pwm_percent_to_power_w(pwm_percent: float, params: dict[str, float] | None = None) -> float:
+    signed_pwm = float(np.clip(pwm_percent, -100.0, 100.0))
+    model = _extract_pwm_model_params(params)
+    deadzone_pct = _get_pwm_deadzone_percent(model, signed_pwm)
+    pwm_effectif = max(0.0, abs(signed_pwm) - deadzone_pct)
+    if pwm_effectif <= 1e-12:
+        return 0.0
+
+    power_w = model["coef_pwm_a0"] + (model["coef_pwm_a1"] * pwm_effectif)
     if model["degre_fit_pwm"] >= 2:
-        power_w += model["coef_pwm_a2"] * (pwm**2)
+        power_w += model["coef_pwm_a2"] * (pwm_effectif**2)
     if model["degre_fit_pwm"] >= 3:
-        power_w += model["coef_pwm_a3"] * (pwm**3)
+        power_w += model["coef_pwm_a3"] * (pwm_effectif**3)
     return max(0.0, float(power_w))
 
 
 def _is_pwm_model_physical(params: dict[str, float]) -> bool:
     grid = np.linspace(0.0, 100.0, 201)
-    values = np.array([pwm_percent_to_power_w(level, params) for level in grid], dtype=float)
-    if not np.all(np.isfinite(values)):
-        return False
-    if np.any(values < -1e-9):
-        return False
-    return bool(np.all(np.diff(values) >= -1e-4))
+    for signed_grid in (grid, -grid):
+        values = np.array([pwm_percent_to_power_w(level, params) for level in signed_grid], dtype=float)
+        if not np.all(np.isfinite(values)):
+            return False
+        if np.any(values < -1e-9):
+            return False
+        if np.any(np.diff(values) < -1e-4):
+            return False
+    return True
 
 
 def load_fixed_parameters_from_json(path: Path | None) -> dict[str, float]:
@@ -347,6 +404,18 @@ def build_evaluation_params(overrides: dict[str, float] | None = None, fixed_par
             params["tau_tec_s"] = float(source["constante_temps_tec_s"])
 
     params["degre_fit_pwm"] = normalize_pwm_fit_degree(params.get("degre_fit_pwm", 3))
+    generic_tec = float(params.get("facteur_couplage_tec", DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_tec"]))
+    explicit_gain_plus = any(source and "facteur_couplage_tec_chauffage" in source for source in (fixed_params, overrides))
+    explicit_gain_minus = any(source and "facteur_couplage_tec_refroidissement" in source for source in (fixed_params, overrides))
+    if not explicit_gain_plus:
+        params["facteur_couplage_tec_chauffage"] = generic_tec
+    if not explicit_gain_minus:
+        params["facteur_couplage_tec_refroidissement"] = generic_tec
+    params["facteur_couplage_tec_chauffage"] = float(params["facteur_couplage_tec_chauffage"])
+    params["facteur_couplage_tec_refroidissement"] = float(params["facteur_couplage_tec_refroidissement"])
+    params["facteur_couplage_tec"] = 0.5 * (params["facteur_couplage_tec_chauffage"] + params["facteur_couplage_tec_refroidissement"])
+    params["zone_morte_pwm_chauffage_pct"] = float(np.clip(params.get("zone_morte_pwm_chauffage_pct", DEFAULT_PWM_MODEL["zone_morte_pwm_chauffage_pct"]), 0.0, 12.0))
+    params["zone_morte_pwm_refroidissement_pct"] = float(np.clip(params.get("zone_morte_pwm_refroidissement_pct", DEFAULT_PWM_MODEL["zone_morte_pwm_refroidissement_pct"]), 0.0, 12.0))
     return params
 
 
@@ -651,6 +720,10 @@ def simulate_tec_response(
     coef_pwm_a1: float = DEFAULT_PWM_MODEL["coef_pwm_a1"],
     coef_pwm_a2: float = DEFAULT_PWM_MODEL["coef_pwm_a2"],
     coef_pwm_a3: float = DEFAULT_PWM_MODEL["coef_pwm_a3"],
+    facteur_couplage_tec_chauffage: float | None = None,
+    facteur_couplage_tec_refroidissement: float | None = None,
+    zone_morte_pwm_chauffage_pct: float = DEFAULT_PWM_MODEL["zone_morte_pwm_chauffage_pct"],
+    zone_morte_pwm_refroidissement_pct: float = DEFAULT_PWM_MODEL["zone_morte_pwm_refroidissement_pct"],
 ) -> dict[str, np.ndarray]:
     pwm_model = {
         "degre_fit_pwm": degre_fit_pwm,
@@ -658,13 +731,23 @@ def simulate_tec_response(
         "coef_pwm_a1": coef_pwm_a1,
         "coef_pwm_a2": coef_pwm_a2,
         "coef_pwm_a3": coef_pwm_a3,
+        "zone_morte_pwm_chauffage_pct": zone_morte_pwm_chauffage_pct,
+        "zone_morte_pwm_refroidissement_pct": zone_morte_pwm_refroidissement_pct,
+        "facteur_couplage_tec": facteur_couplage_tec,
     }
+    if facteur_couplage_tec_chauffage is not None:
+        pwm_model["facteur_couplage_tec_chauffage"] = facteur_couplage_tec_chauffage
+    if facteur_couplage_tec_refroidissement is not None:
+        pwm_model["facteur_couplage_tec_refroidissement"] = facteur_couplage_tec_refroidissement
+
+    signed_pwm = float(sign) * float(abs(pwm_percent))
+    facteur_branche = get_tec_branch_coupling(pwm_model, sign)
     return _simulate_response(
         target_times=target_times,
         diffusivite_alpha=diffusivite_alpha,
         coeff_convection_h=coeff_convection_h,
         chaleur_massique_cp=chaleur_massique_cp,
-        tec_power_w=sign * facteur_couplage_tec * pwm_percent_to_power_w(pwm_percent, pwm_model),
+        tec_power_w=sign * facteur_branche * pwm_percent_to_power_w(signed_pwm, pwm_model),
         tec_tau_s=tau_tec_s,
     )
 
@@ -695,6 +778,10 @@ def _simulate_experiment(exp: ThermalExperiment, params: dict[str, float]) -> di
             coef_pwm_a1=params.get("coef_pwm_a1", DEFAULT_PWM_MODEL["coef_pwm_a1"]),
             coef_pwm_a2=params.get("coef_pwm_a2", DEFAULT_PWM_MODEL["coef_pwm_a2"]),
             coef_pwm_a3=params.get("coef_pwm_a3", DEFAULT_PWM_MODEL["coef_pwm_a3"]),
+            facteur_couplage_tec_chauffage=params.get("facteur_couplage_tec_chauffage"),
+            facteur_couplage_tec_refroidissement=params.get("facteur_couplage_tec_refroidissement"),
+            zone_morte_pwm_chauffage_pct=params.get("zone_morte_pwm_chauffage_pct", DEFAULT_PWM_MODEL["zone_morte_pwm_chauffage_pct"]),
+            zone_morte_pwm_refroidissement_pct=params.get("zone_morte_pwm_refroidissement_pct", DEFAULT_PWM_MODEL["zone_morte_pwm_refroidissement_pct"]),
         )
     raise ValueError(f"Type d'expérience inconnu: {exp.source}")
 
@@ -705,19 +792,40 @@ def summarize_experiment_rmse(experiments: Iterable[ThermalExperiment], **params
     for exp in experiments:
         sim = _simulate_experiment(exp, params)
         sensor_rmse: dict[str, float] = {}
+        sensor_plateau_bias: dict[str, float] = {}
+        sensor_plateau_rmse: dict[str, float] = {}
+
         for sensor_name, measured in exp.sensor_deltas_c.items():
-            if sensor_name in sim:
-                sensor_rmse[sensor_name] = math.sqrt(float(np.mean((sim[sensor_name] - measured) ** 2)))
+            if sensor_name not in sim:
+                continue
+
+            error = np.asarray(sim[sensor_name] - measured, dtype=float)
+            sensor_rmse[sensor_name] = math.sqrt(float(np.mean(error**2)))
+
+            plateau_count = min(len(error), max(STEADY_STATE_MIN_POINTS, int(round(STEADY_STATE_WINDOW_FRACTION * len(error)))))
+            plateau_error = error[-plateau_count:] if plateau_count > 0 else error
+            sensor_plateau_bias[sensor_name] = float(np.sqrt(float(np.mean(plateau_error)) ** 2))
+            sensor_plateau_rmse[sensor_name] = math.sqrt(float(np.mean(plateau_error**2)))
 
         if not sensor_rmse:
             continue
+
+        rmse_dynamique = math.sqrt(float(np.mean([value**2 for value in sensor_rmse.values()])))
+        erreur_plateau = float(np.mean(list(sensor_plateau_bias.values())))
+        rmse_plateau = math.sqrt(float(np.mean([value**2 for value in sensor_plateau_rmse.values()])))
+        score_calibration = math.sqrt(rmse_dynamique**2 + (STEADY_STATE_WEIGHT * erreur_plateau) ** 2)
 
         details.append(
             {
                 "nom": exp.name,
                 "source": exp.source,
-                "rmse_C": math.sqrt(float(np.mean([value**2 for value in sensor_rmse.values()]))),
+                "rmse_C": rmse_dynamique,
+                "rmse_dynamique_C": rmse_dynamique,
+                "erreur_plateau_C": erreur_plateau,
+                "rmse_plateau_C": rmse_plateau,
+                "score_calibration_C": score_calibration,
                 "rmse_capteurs_C": sensor_rmse,
+                "erreur_plateau_capteurs_C": sensor_plateau_bias,
             }
         )
 
@@ -728,7 +836,18 @@ def evaluate_rmse(experiments: Iterable[ThermalExperiment], **params: float) -> 
     details = summarize_experiment_rmse(experiments, **params)
     if not details:
         raise ValueError("Aucune erreur de calibration n'a pu être calculée")
-    return math.sqrt(float(np.mean([detail["rmse_C"] ** 2 for detail in details])))
+    return math.sqrt(float(np.mean([detail["rmse_dynamique_C"] ** 2 for detail in details])))
+
+
+def evaluate_calibration_score(experiments: Iterable[ThermalExperiment], **params: float) -> float:
+    details = summarize_experiment_rmse(experiments, **params)
+    if not details:
+        raise ValueError("Aucune erreur de calibration n'a pu être calculée")
+
+    clipped_scores = [min(float(detail["score_calibration_C"]), CALIBRATION_SCORE_CLIP_C) for detail in details]
+    plateau_errors = [float(detail["erreur_plateau_C"]) for detail in details]
+    base_score = math.sqrt(float(np.mean([value**2 for value in clipped_scores])))
+    return base_score + (WORST_CASE_WEIGHT * max(plateau_errors, default=0.0))
 
 
 def load_all_experiments(
@@ -802,24 +921,32 @@ def calibrate_combined(
         "chaleur_massique_cp",
         "facteur_couplage_perturbation",
         "tau_perturbation_s",
-        "facteur_couplage_tec",
+        "facteur_couplage_tec_chauffage",
+        "facteur_couplage_tec_refroidissement",
         "tau_tec_s",
+        "zone_morte_pwm_chauffage_pct",
+        "zone_morte_pwm_refroidissement_pct",
     ]
 
     baseline = build_evaluation_params(
         {
             "facteur_couplage_perturbation": DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_perturbation"],
             "tau_perturbation_s": DEFAULT_OPTIMIZER_INITIALS["tau_perturbation_s"],
-            "facteur_couplage_tec": DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_tec"],
+            "facteur_couplage_tec": float(initial_params.get("facteur_couplage_tec", DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_tec"])),
+            "facteur_couplage_tec_chauffage": float(initial_params.get("facteur_couplage_tec_chauffage", initial_params.get("facteur_couplage_tec", DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_tec_chauffage"]))),
+            "facteur_couplage_tec_refroidissement": float(initial_params.get("facteur_couplage_tec_refroidissement", initial_params.get("facteur_couplage_tec", DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_tec_refroidissement"]))),
             "tau_tec_s": DEFAULT_OPTIMIZER_INITIALS["tau_tec_s"],
+            "zone_morte_pwm_chauffage_pct": float(initial_params.get("zone_morte_pwm_chauffage_pct", DEFAULT_PWM_MODEL["zone_morte_pwm_chauffage_pct"])),
+            "zone_morte_pwm_refroidissement_pct": float(initial_params.get("zone_morte_pwm_refroidissement_pct", DEFAULT_PWM_MODEL["zone_morte_pwm_refroidissement_pct"])),
             **{key: value for key, value in initial_params.items() if key in optimization_keys},
         }
     )
     baseline_rmse = evaluate_rmse(experiments, **baseline)
+    baseline_score = evaluate_calibration_score(experiments, **baseline)
     if progress_callback is not None:
-        progress_callback(f"RMSE initiale : {baseline_rmse:.3f} °C")
+        progress_callback(f"RMSE initiale : {baseline_rmse:.3f} °C | score plateau : {baseline_score:.3f} °C")
 
-    optimization_state = {"count": 0, "best_rmse": float("inf")}
+    optimization_state = {"count": 0, "best_score": float("inf")}
 
     def objective(vector: np.ndarray) -> float:
         values = build_evaluation_params(
@@ -829,8 +956,11 @@ def calibrate_combined(
                 "chaleur_massique_cp": float(vector[2]),
                 "facteur_couplage_perturbation": float(vector[3]),
                 "tau_perturbation_s": float(vector[4]),
-                "facteur_couplage_tec": float(vector[5]),
-                "tau_tec_s": float(vector[6]),
+                "facteur_couplage_tec_chauffage": float(vector[5]),
+                "facteur_couplage_tec_refroidissement": float(vector[6]),
+                "tau_tec_s": float(vector[7]),
+                "zone_morte_pwm_chauffage_pct": float(vector[8]),
+                "zone_morte_pwm_refroidissement_pct": float(vector[9]),
             },
             fixed_params=baseline,
         )
@@ -839,24 +969,28 @@ def calibrate_combined(
             or values["coeff_convection_h"] <= 0
             or values["chaleur_massique_cp"] <= 0
             or values["facteur_couplage_perturbation"] <= 0
-            or values["facteur_couplage_tec"] <= 0
+            or values["facteur_couplage_tec_chauffage"] <= 0
+            or values["facteur_couplage_tec_refroidissement"] <= 0
             or values["tau_perturbation_s"] < 0
             or values["tau_tec_s"] < 0
+            or not _is_pwm_model_physical(values)
         ):
             return 1e12
 
         rmse = evaluate_rmse(experiments, **values)
+        score = evaluate_calibration_score(experiments, **values)
         optimization_state["count"] += 1
-        is_new_best = rmse + 1e-12 < optimization_state["best_rmse"]
+        is_new_best = score + 1e-12 < optimization_state["best_score"]
         if is_new_best:
-            optimization_state["best_rmse"] = rmse
+            optimization_state["best_score"] = score
         if progress_callback is not None and (optimization_state["count"] <= 3 or is_new_best):
             progress_callback(
                 "Itération "
-                f"{optimization_state['count']:03d} | RMSE={rmse:.3f} °C | "
-                f"alpha={values['diffusivite_alpha']:.2f}, h={values['coeff_convection_h']:.3e}, Cp={values['chaleur_massique_cp']:.3f}"
+                f"{optimization_state['count']:03d} | score={score:.3f} °C | RMSE dyn={rmse:.3f} °C | "
+                f"g+={values['facteur_couplage_tec_chauffage']:.3f}, g-={values['facteur_couplage_tec_refroidissement']:.3f}, "
+                f"zm+={values['zone_morte_pwm_chauffage_pct']:.2f} %, zm-={values['zone_morte_pwm_refroidissement_pct']:.2f} %"
             )
-        return rmse**2
+        return score**2
 
     result = minimize(
         objective,
@@ -866,7 +1000,7 @@ def calibrate_combined(
             compute_parameter_bounds(key, baseline[key], variation_max_pct.get(key))
             for key in optimization_keys
         ],
-        options={"maxiter": 35},
+        options={"maxiter": 40},
     )
 
     best = {
@@ -875,8 +1009,12 @@ def calibrate_combined(
         "chaleur_massique_cp": float(result.x[2]),
         "facteur_couplage_perturbation": float(result.x[3]),
         "constante_temps_perturbation_s": float(result.x[4]),
-        "facteur_couplage_tec": float(result.x[5]),
-        "constante_temps_tec_s": float(result.x[6]),
+        "facteur_couplage_tec_chauffage": float(result.x[5]),
+        "facteur_couplage_tec_refroidissement": float(result.x[6]),
+        "facteur_couplage_tec": 0.5 * (float(result.x[5]) + float(result.x[6])),
+        "constante_temps_tec_s": float(result.x[7]),
+        "zone_morte_pwm_chauffage_pct": float(result.x[8]),
+        "zone_morte_pwm_refroidissement_pct": float(result.x[9]),
         "degre_fit_pwm": int(baseline["degre_fit_pwm"]),
         "coef_pwm_a0": float(baseline["coef_pwm_a0"]),
         "coef_pwm_a1": float(baseline["coef_pwm_a1"]),
@@ -891,8 +1029,11 @@ def calibrate_combined(
             "chaleur_massique_cp": best["chaleur_massique_cp"],
             "facteur_couplage_perturbation": best["facteur_couplage_perturbation"],
             "tau_perturbation_s": best["constante_temps_perturbation_s"],
-            "facteur_couplage_tec": best["facteur_couplage_tec"],
+            "facteur_couplage_tec_chauffage": best["facteur_couplage_tec_chauffage"],
+            "facteur_couplage_tec_refroidissement": best["facteur_couplage_tec_refroidissement"],
             "tau_tec_s": best["constante_temps_tec_s"],
+            "zone_morte_pwm_chauffage_pct": best["zone_morte_pwm_chauffage_pct"],
+            "zone_morte_pwm_refroidissement_pct": best["zone_morte_pwm_refroidissement_pct"],
             "degre_fit_pwm": best["degre_fit_pwm"],
             "coef_pwm_a0": best["coef_pwm_a0"],
             "coef_pwm_a1": best["coef_pwm_a1"],
@@ -902,7 +1043,8 @@ def calibrate_combined(
     )
 
     rmse_after = evaluate_rmse(experiments, **best_for_eval)
-    usable_solution = math.isfinite(float(result.fun)) and rmse_after <= baseline_rmse + 1e-12
+    score_after = evaluate_calibration_score(experiments, **best_for_eval)
+    usable_solution = math.isfinite(float(result.fun)) and score_after <= baseline_score + 1e-12
 
     branches = sorted({exp.source for exp in experiments})
     rmse_details = summarize_experiment_rmse(experiments, **best_for_eval)
@@ -921,13 +1063,23 @@ def calibrate_combined(
         else:
             detail["pwm_percent"] = round(exp.input_level, 3)
             detail["mode"] = "refroidissement" if exp.sign < 0 else "chauffage"
-            detail["puissance_estimee_W"] = round(exp.sign * pwm_percent_to_power_w(exp.input_level, best_for_eval), 3)
+            detail["puissance_estimee_W"] = round(
+                exp.sign * get_tec_branch_coupling(best_for_eval, exp.sign) * pwm_percent_to_power_w(exp.sign * exp.input_level, best_for_eval),
+                3,
+            )
 
         if exp.name in rmse_by_name:
             detail["rmse_C"] = round(float(rmse_by_name[exp.name]["rmse_C"]), 3)
+            detail["rmse_dynamique_C"] = round(float(rmse_by_name[exp.name]["rmse_dynamique_C"]), 3)
+            detail["erreur_plateau_C"] = round(float(rmse_by_name[exp.name]["erreur_plateau_C"]), 3)
+            detail["score_calibration_C"] = round(float(rmse_by_name[exp.name]["score_calibration_C"]), 3)
             detail["rmse_capteurs_C"] = {
                 key: round(float(value), 3)
                 for key, value in rmse_by_name[exp.name]["rmse_capteurs_C"].items()
+            }
+            detail["erreur_plateau_capteurs_C"] = {
+                key: round(float(value), 3)
+                for key, value in rmse_by_name[exp.name]["erreur_plateau_capteurs_C"].items()
             }
         summary.append(detail)
 
@@ -939,6 +1091,10 @@ def calibrate_combined(
         "nombre_essais": len(experiments),
         "rmse_avant_C": baseline_rmse,
         "rmse_apres_C": rmse_after,
+        "score_calibration_avant_C": baseline_score,
+        "score_calibration_apres_C": score_after,
+        "erreur_plateau_moyenne_C": round(float(np.mean([detail["erreur_plateau_C"] for detail in rmse_details])), 3),
+        "erreur_plateau_max_C": round(float(max((detail["erreur_plateau_C"] for detail in rmse_details), default=0.0)), 3),
         "parametres": {
             "diffusivite_alpha": round(best["diffusivite_alpha"], 3),
             "coeff_convection_h": round(best["coeff_convection_h"], 8),
@@ -946,7 +1102,11 @@ def calibrate_combined(
             "facteur_couplage_perturbation": round(best["facteur_couplage_perturbation"], 3),
             "constante_temps_perturbation_s": round(best["constante_temps_perturbation_s"], 2),
             "facteur_couplage_tec": round(best["facteur_couplage_tec"], 3),
+            "facteur_couplage_tec_chauffage": round(best["facteur_couplage_tec_chauffage"], 3),
+            "facteur_couplage_tec_refroidissement": round(best["facteur_couplage_tec_refroidissement"], 3),
             "constante_temps_tec_s": round(best["constante_temps_tec_s"], 2),
+            "zone_morte_pwm_chauffage_pct": round(best["zone_morte_pwm_chauffage_pct"], 3),
+            "zone_morte_pwm_refroidissement_pct": round(best["zone_morte_pwm_refroidissement_pct"], 3),
             "degre_fit_pwm": int(best["degre_fit_pwm"]),
             "coef_pwm_a0": round(best["coef_pwm_a0"], 8),
             "coef_pwm_a1": round(best["coef_pwm_a1"], 8),
@@ -959,12 +1119,16 @@ def calibrate_combined(
 
 def format_pwm_model_equation(params: dict[str, float]) -> str:
     model = _extract_pwm_model_params(params)
-    terms = [f"{model['coef_pwm_a0']:.6g}", f"{model['coef_pwm_a1']:.6g}·|PWM|"]
+    terms = [f"{model['coef_pwm_a0']:.6g}", f"{model['coef_pwm_a1']:.6g}·PWM_eff"]
     if model["degre_fit_pwm"] >= 2:
-        terms.append(f"{model['coef_pwm_a2']:.6g}·|PWM|²")
+        terms.append(f"{model['coef_pwm_a2']:.6g}·PWM_eff²")
     if model["degre_fit_pwm"] >= 3:
-        terms.append(f"{model['coef_pwm_a3']:.6g}·|PWM|³")
-    return "P(W) ≈ " + " + ".join(terms)
+        terms.append(f"{model['coef_pwm_a3']:.6g}·PWM_eff³")
+    return (
+        "P(W) ≈ "
+        + " + ".join(terms)
+        + f" avec PWM_eff=max(|PWM|-zm,0), zm+={model['zone_morte_pwm_chauffage_pct']:.2f} %, zm-={model['zone_morte_pwm_refroidissement_pct']:.2f} %"
+    )
 
 
 def calibrate_pwm_model(
@@ -982,37 +1146,50 @@ def calibrate_pwm_model(
     fit_degree = normalize_pwm_fit_degree(fit_degree)
     initial_params = dict(initial_params or {})
     variation_max_pct = dict(variation_max_pct or {})
+    baseline_inputs = {"degre_fit_pwm": fit_degree}
+    for key in {"tau_tec_s", "facteur_couplage_tec", *PWM_COEFF_KEYS, *PWM_DEADZONE_KEYS, *PWM_BRANCH_COUPLING_KEYS}:
+        if key in initial_params:
+            baseline_inputs[key] = float(initial_params[key])
+
     baseline = build_evaluation_params(
-        {
-            "degre_fit_pwm": fit_degree,
-            "facteur_couplage_tec": float(initial_params.get("facteur_couplage_tec", DEFAULT_OPTIMIZER_INITIALS["facteur_couplage_tec"])),
-            **{key: value for key, value in initial_params.items() if key in {"tau_tec_s", *PWM_COEFF_KEYS}},
-        },
+        baseline_inputs,
         fixed_params=fixed_params,
     )
 
     baseline_rmse = evaluate_rmse(tec_experiments, **baseline)
+    baseline_score = evaluate_calibration_score(tec_experiments, **baseline)
     if progress_callback is not None:
-        progress_callback(f"RMSE initiale (modèle PWM figé) : {baseline_rmse:.3f} °C")
+        progress_callback(f"RMSE initiale (modèle PWM figé) : {baseline_rmse:.3f} °C | score plateau : {baseline_score:.3f} °C")
         progress_callback(f"Paramètres thermiques figés : alpha={baseline['diffusivite_alpha']:.3f}, h={baseline['coeff_convection_h']:.3e}, Cp={baseline['chaleur_massique_cp']:.4f}")
         progress_callback(f"Équation PWM initiale : {format_pwm_model_equation(baseline)}")
 
-    varying_keys = ["facteur_couplage_tec", "tau_tec_s", "coef_pwm_a0", "coef_pwm_a1"]
+    varying_keys = [
+        "facteur_couplage_tec_chauffage",
+        "facteur_couplage_tec_refroidissement",
+        "tau_tec_s",
+        "zone_morte_pwm_chauffage_pct",
+        "zone_morte_pwm_refroidissement_pct",
+        "coef_pwm_a0",
+        "coef_pwm_a1",
+    ]
     if fit_degree >= 2:
         varying_keys.append("coef_pwm_a2")
     if fit_degree >= 3:
         varying_keys.append("coef_pwm_a3")
 
     regularization_scales = {
-        "facteur_couplage_tec": 0.2,
+        "facteur_couplage_tec_chauffage": 0.25,
+        "facteur_couplage_tec_refroidissement": 0.25,
         "tau_tec_s": 10.0,
+        "zone_morte_pwm_chauffage_pct": 1.0,
+        "zone_morte_pwm_refroidissement_pct": 1.0,
         "coef_pwm_a0": 0.03,
         "coef_pwm_a1": 0.04,
         "coef_pwm_a2": 0.002,
         "coef_pwm_a3": 5e-05,
     }
 
-    optimization_state = {"count": 0, "best_rmse": float("inf")}
+    optimization_state = {"count": 0, "best_score": float("inf")}
 
     def objective(vector: np.ndarray) -> float:
         trial = build_evaluation_params(
@@ -1021,26 +1198,34 @@ def calibrate_pwm_model(
         )
         trial["degre_fit_pwm"] = fit_degree
 
-        if trial["facteur_couplage_tec"] <= 0 or trial["tau_tec_s"] < 0 or not _is_pwm_model_physical(trial):
+        if (
+            trial["facteur_couplage_tec_chauffage"] <= 0
+            or trial["facteur_couplage_tec_refroidissement"] <= 0
+            or trial["tau_tec_s"] < 0
+            or not _is_pwm_model_physical(trial)
+        ):
             return 1e12
 
         rmse = evaluate_rmse(tec_experiments, **trial)
-        regularization = 0.015 * sum(
+        score = evaluate_calibration_score(tec_experiments, **trial)
+        regularization = 0.012 * sum(
             ((trial[key] - baseline[key]) / regularization_scales[key]) ** 2
             for key in varying_keys
         )
 
         optimization_state["count"] += 1
-        is_new_best = rmse + 1e-12 < optimization_state["best_rmse"]
+        is_new_best = score + 1e-12 < optimization_state["best_score"]
         if is_new_best:
-            optimization_state["best_rmse"] = rmse
+            optimization_state["best_score"] = score
         if progress_callback is not None and (optimization_state["count"] <= 4 or is_new_best):
             progress_callback(
                 "Fit PWM "
-                f"{optimization_state['count']:03d} | RMSE={rmse:.3f} °C | "
-                f"gain={trial['facteur_couplage_tec']:.3f} | tau={trial['tau_tec_s']:.2f} s | {format_pwm_model_equation(trial)}"
+                f"{optimization_state['count']:03d} | score={score:.3f} °C | RMSE dyn={rmse:.3f} °C | "
+                f"g+={trial['facteur_couplage_tec_chauffage']:.3f}, g-={trial['facteur_couplage_tec_refroidissement']:.3f}, "
+                f"zm+={trial['zone_morte_pwm_chauffage_pct']:.2f} %, zm-={trial['zone_morte_pwm_refroidissement_pct']:.2f} % | "
+                f"tau={trial['tau_tec_s']:.2f} s"
             )
-        return rmse**2 + regularization
+        return score**2 + regularization
 
     initial_vector = np.array([baseline[key] for key in varying_keys], dtype=float)
     result = minimize(
@@ -1048,7 +1233,7 @@ def calibrate_pwm_model(
         x0=initial_vector,
         method="L-BFGS-B",
         bounds=[compute_parameter_bounds(key, baseline[key], variation_max_pct.get(key)) for key in varying_keys],
-        options={"maxiter": 45},
+        options={"maxiter": 55},
     )
 
     best_for_eval = build_evaluation_params(
@@ -1058,7 +1243,8 @@ def calibrate_pwm_model(
     best_for_eval["degre_fit_pwm"] = fit_degree
 
     rmse_after = evaluate_rmse(tec_experiments, **best_for_eval)
-    usable_solution = math.isfinite(float(result.fun)) and rmse_after <= baseline_rmse + 1e-12
+    score_after = evaluate_calibration_score(tec_experiments, **best_for_eval)
+    usable_solution = math.isfinite(float(result.fun)) and score_after <= baseline_score + 1e-12
 
     rmse_details = summarize_experiment_rmse(tec_experiments, **best_for_eval)
     rmse_by_name = {detail["nom"]: detail for detail in rmse_details}
@@ -1072,13 +1258,23 @@ def calibrate_pwm_model(
             "capteurs": sorted(exp.sensor_deltas_c.keys()),
             "pwm_percent": round(exp.input_level, 3),
             "mode": "refroidissement" if exp.sign < 0 else "chauffage",
-            "puissance_estimee_W": round(exp.sign * pwm_percent_to_power_w(exp.input_level, best_for_eval), 3),
+            "puissance_estimee_W": round(
+                exp.sign * get_tec_branch_coupling(best_for_eval, exp.sign) * pwm_percent_to_power_w(exp.sign * exp.input_level, best_for_eval),
+                3,
+            ),
         }
         if exp.name in rmse_by_name:
             detail["rmse_C"] = round(float(rmse_by_name[exp.name]["rmse_C"]), 3)
+            detail["rmse_dynamique_C"] = round(float(rmse_by_name[exp.name]["rmse_dynamique_C"]), 3)
+            detail["erreur_plateau_C"] = round(float(rmse_by_name[exp.name]["erreur_plateau_C"]), 3)
+            detail["score_calibration_C"] = round(float(rmse_by_name[exp.name]["score_calibration_C"]), 3)
             detail["rmse_capteurs_C"] = {
                 key: round(float(value), 3)
                 for key, value in rmse_by_name[exp.name]["rmse_capteurs_C"].items()
+            }
+            detail["erreur_plateau_capteurs_C"] = {
+                key: round(float(value), 3)
+                for key, value in rmse_by_name[exp.name]["erreur_plateau_capteurs_C"].items()
             }
         summary.append(detail)
 
@@ -1091,6 +1287,10 @@ def calibrate_pwm_model(
         "nombre_essais": len(tec_experiments),
         "rmse_avant_C": baseline_rmse,
         "rmse_apres_C": rmse_after,
+        "score_calibration_avant_C": baseline_score,
+        "score_calibration_apres_C": score_after,
+        "erreur_plateau_moyenne_C": round(float(np.mean([detail["erreur_plateau_C"] for detail in rmse_details])), 3),
+        "erreur_plateau_max_C": round(float(max((detail["erreur_plateau_C"] for detail in rmse_details), default=0.0)), 3),
         "equation_pwm": format_pwm_model_equation(best_for_eval),
         "parametres_fixes": {
             "diffusivite_alpha": round(best_for_eval["diffusivite_alpha"], 3),
@@ -1106,7 +1306,11 @@ def calibrate_pwm_model(
             "facteur_couplage_perturbation": round(best_for_eval["facteur_couplage_perturbation"], 3),
             "constante_temps_perturbation_s": round(best_for_eval["tau_perturbation_s"], 2),
             "facteur_couplage_tec": round(best_for_eval["facteur_couplage_tec"], 3),
+            "facteur_couplage_tec_chauffage": round(best_for_eval["facteur_couplage_tec_chauffage"], 3),
+            "facteur_couplage_tec_refroidissement": round(best_for_eval["facteur_couplage_tec_refroidissement"], 3),
             "constante_temps_tec_s": round(best_for_eval["tau_tec_s"], 2),
+            "zone_morte_pwm_chauffage_pct": round(best_for_eval["zone_morte_pwm_chauffage_pct"], 3),
+            "zone_morte_pwm_refroidissement_pct": round(best_for_eval["zone_morte_pwm_refroidissement_pct"], 3),
             "degre_fit_pwm": int(best_for_eval["degre_fit_pwm"]),
             "coef_pwm_a0": round(best_for_eval["coef_pwm_a0"], 8),
             "coef_pwm_a1": round(best_for_eval["coef_pwm_a1"], 8),
@@ -1176,6 +1380,8 @@ def run_cli(args: argparse.Namespace) -> dict | None:
     print(f"Essais utilisés     : {report['nombre_essais']}")
     print(f"RMSE avant          : {report['rmse_avant_C']:.3f} °C")
     print(f"RMSE après          : {report['rmse_apres_C']:.3f} °C")
+    if 'score_calibration_avant_C' in report and 'score_calibration_apres_C' in report:
+        print(f"Score plateau       : {report['score_calibration_avant_C']:.3f} → {report['score_calibration_apres_C']:.3f} °C")
     if report.get("equation_pwm"):
         print(f"Modèle PWM          : {report['equation_pwm']}")
     print("\nParamètres recommandés pour SimulateurUpgrade.py :")

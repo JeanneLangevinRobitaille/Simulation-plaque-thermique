@@ -39,6 +39,13 @@ DEFAULT_PWM_MODEL = {
     "coef_pwm_a3": 1.703277e-05,
 }
 PWM_COEFF_KEYS = ("coef_pwm_a0", "coef_pwm_a1", "coef_pwm_a2", "coef_pwm_a3")
+HYBRID_ERROR_WEIGHTS = {
+    "perturbation": {"dynamic": 0.85, "plateau": 0.15},
+    "tec": {"dynamic": 0.70, "plateau": 0.30},
+}
+PLATEAU_WINDOW_FRACTION = 0.25
+PLATEAU_WINDOW_MIN_SAMPLES = 8
+ABSOLUTE_TEMPERATURE_CLIP_C = (-20.0, 120.0)
 
 BASE_PARAMS = {
     "largeur_x_mm": 61.5,
@@ -84,6 +91,7 @@ class ThermalExperiment:
     sign: float
     time_s: np.ndarray
     sensor_deltas_c: dict[str, np.ndarray]
+    sensor_absolute_c: dict[str, np.ndarray]
 
 
 def _normalize_name(name: str) -> str:
@@ -280,7 +288,7 @@ def build_evaluation_params(overrides: dict[str, float] | None = None, fixed_par
     return params
 
 
-def _load_common_csv(path: Path, max_time_s: float, downsample: int) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+def _load_common_csv(path: Path, max_time_s: float, downsample: int) -> tuple[np.ndarray, dict[str, np.ndarray], dict[str, np.ndarray]]:
     df = _read_csv_flexible(path)
     time_col = _find_column(df, ("Temps_s", "Temps", "time_s", "time"))
     if time_col is None:
@@ -311,11 +319,13 @@ def _load_common_csv(path: Path, max_time_s: float, downsample: int) -> tuple[np
     time_s = time_s[mask][::step]
 
     sensor_deltas: dict[str, np.ndarray] = {}
+    sensor_absolute: dict[str, np.ndarray] = {}
     for sensor_name, column_name in sensor_columns.items():
-        values = df[column_name].to_numpy(dtype=float)[mask]
-        sensor_deltas[sensor_name] = (values - values[0])[::step]
+        values = df[column_name].to_numpy(dtype=float)[mask][::step]
+        sensor_absolute[sensor_name] = values
+        sensor_deltas[sensor_name] = values - float(values[0])
 
-    return time_s, sensor_deltas
+    return time_s, sensor_deltas, sensor_absolute
 
 
 def load_perturbation_experiments(
@@ -350,8 +360,9 @@ def load_perturbation_experiments(
 
     experiments: list[ThermalExperiment] = []
     for index, (path, power_w) in enumerate(matches, start=1):
-        time_s, sensor_deltas = _load_common_csv(path, max_time_s=max_time_s, downsample=downsample)
+        time_s, sensor_deltas, sensor_absolute = _load_common_csv(path, max_time_s=max_time_s, downsample=downsample)
         filtered = {name: values for name, values in sensor_deltas.items() if name in {"T2", "T3", "T1"}}
+        filtered_abs = {name: values for name, values in sensor_absolute.items() if name in filtered}
         experiment = ThermalExperiment(
             name=path.name,
             source="perturbation",
@@ -359,6 +370,7 @@ def load_perturbation_experiments(
             sign=1.0,
             time_s=time_s,
             sensor_deltas_c=filtered,
+            sensor_absolute_c=filtered_abs,
         )
         experiments.append(experiment)
         if progress_callback is not None:
@@ -408,7 +420,7 @@ def load_tec_experiments(
 
     experiments: list[ThermalExperiment] = []
     for index, (path, pwm_percent, sign) in enumerate(matches, start=1):
-        time_s, sensor_deltas = _load_common_csv(path, max_time_s=max_time_s, downsample=downsample)
+        time_s, sensor_deltas, sensor_absolute = _load_common_csv(path, max_time_s=max_time_s, downsample=downsample)
         experiment = ThermalExperiment(
             name=path.name,
             source="tec",
@@ -416,6 +428,7 @@ def load_tec_experiments(
             sign=float(sign),
             time_s=time_s,
             sensor_deltas_c=sensor_deltas,
+            sensor_absolute_c=sensor_absolute,
         )
         experiments.append(experiment)
         if progress_callback is not None:
@@ -608,15 +621,66 @@ def _simulate_experiment(exp: ThermalExperiment, params: dict[str, float]) -> di
     raise ValueError(f"Type d'expérience inconnu: {exp.source}")
 
 
+def _get_source_error_weights(source: str) -> tuple[float, float]:
+    weights = HYBRID_ERROR_WEIGHTS.get(str(source).lower(), {"dynamic": 0.75, "plateau": 0.25})
+    dynamic_weight = max(0.0, float(weights.get("dynamic", 0.75)))
+    plateau_weight = max(0.0, float(weights.get("plateau", 0.25)))
+    total = max(dynamic_weight + plateau_weight, 1e-12)
+    return dynamic_weight / total, plateau_weight / total
+
+
+def _compute_plateau_slice(sample_count: int) -> slice:
+    if sample_count <= 0:
+        return slice(0, 0)
+    plateau_count = max(PLATEAU_WINDOW_MIN_SAMPLES, int(math.ceil(sample_count * PLATEAU_WINDOW_FRACTION)))
+    plateau_count = min(sample_count, plateau_count)
+    return slice(sample_count - plateau_count, sample_count)
+
+
+def _compute_sensor_error(
+    exp: ThermalExperiment,
+    sensor_name: str,
+    simulated_delta: np.ndarray,
+    measured_delta: np.ndarray,
+    **params: float,
+) -> tuple[float, float, float]:
+    dynamic_rmse = math.sqrt(float(np.mean((simulated_delta - measured_delta) ** 2)))
+    plateau_gap_c = dynamic_rmse
+
+    measured_absolute = exp.sensor_absolute_c.get(sensor_name)
+    if measured_absolute is not None and len(measured_absolute) == len(simulated_delta):
+        plateau_slice = _compute_plateau_slice(len(measured_absolute))
+        clip_min, clip_max = ABSOLUTE_TEMPERATURE_CLIP_C
+        temperature_ambiante = float(params.get("temperature_ambiante_C", BASE_PARAMS["temperature_ambiante_C"]))
+        simulated_absolute_plateau = np.clip(temperature_ambiante + simulated_delta[plateau_slice], clip_min, clip_max)
+        measured_absolute_plateau = np.clip(measured_absolute[plateau_slice], clip_min, clip_max)
+        plateau_gap_c = abs(float(np.mean(simulated_absolute_plateau) - np.mean(measured_absolute_plateau)))
+
+    dynamic_weight, plateau_weight = _get_source_error_weights(exp.source)
+    combined_rmse = math.sqrt((dynamic_weight * (dynamic_rmse**2)) + (plateau_weight * (plateau_gap_c**2)))
+    return combined_rmse, dynamic_rmse, plateau_gap_c
+
+
 def summarize_experiment_rmse(experiments: Iterable[ThermalExperiment], **params: float) -> list[dict[str, object]]:
     details: list[dict[str, object]] = []
 
     for exp in experiments:
         sim = _simulate_experiment(exp, params)
         sensor_rmse: dict[str, float] = {}
+        sensor_dynamic_rmse: dict[str, float] = {}
+        sensor_plateau_gap: dict[str, float] = {}
         for sensor_name, measured in exp.sensor_deltas_c.items():
             if sensor_name in sim:
-                sensor_rmse[sensor_name] = math.sqrt(float(np.mean((sim[sensor_name] - measured) ** 2)))
+                combined_rmse, dynamic_rmse, plateau_gap_c = _compute_sensor_error(
+                    exp,
+                    sensor_name,
+                    sim[sensor_name],
+                    measured,
+                    **params,
+                )
+                sensor_rmse[sensor_name] = combined_rmse
+                sensor_dynamic_rmse[sensor_name] = dynamic_rmse
+                sensor_plateau_gap[sensor_name] = plateau_gap_c
 
         if not sensor_rmse:
             continue
@@ -627,6 +691,10 @@ def summarize_experiment_rmse(experiments: Iterable[ThermalExperiment], **params
                 "source": exp.source,
                 "rmse_C": math.sqrt(float(np.mean([value**2 for value in sensor_rmse.values()]))),
                 "rmse_capteurs_C": sensor_rmse,
+                "rmse_dynamique_C": math.sqrt(float(np.mean([value**2 for value in sensor_dynamic_rmse.values()]))),
+                "rmse_dynamique_capteurs_C": sensor_dynamic_rmse,
+                "erreur_plateau_C": math.sqrt(float(np.mean([value**2 for value in sensor_plateau_gap.values()]))),
+                "erreur_plateau_capteurs_C": sensor_plateau_gap,
             }
         )
 
@@ -711,7 +779,7 @@ def calibrate_combined(
     )
     baseline_rmse = evaluate_rmse(experiments, **baseline)
     if progress_callback is not None:
-        progress_callback(f"RMSE initiale : {baseline_rmse:.3f} °C")
+        progress_callback(f"Score hybride initial (dynamique + plateau) : {baseline_rmse:.3f} °C")
 
     optimization_state = {"count": 0, "best_rmse": float("inf")}
 
@@ -747,7 +815,7 @@ def calibrate_combined(
         if progress_callback is not None and (optimization_state["count"] <= 3 or is_new_best):
             progress_callback(
                 "Itération "
-                f"{optimization_state['count']:03d} | RMSE={rmse:.3f} °C | "
+                f"{optimization_state['count']:03d} | score={rmse:.3f} °C | "
                 f"alpha={values['diffusivite_alpha']:.2f}, h={values['coeff_convection_h']:.3e}, Cp={values['chaleur_massique_cp']:.3f}"
             )
         return rmse**2
@@ -832,9 +900,19 @@ def calibrate_combined(
 
         if exp.name in rmse_by_name:
             detail["rmse_C"] = round(float(rmse_by_name[exp.name]["rmse_C"]), 3)
+            detail["rmse_dynamique_C"] = round(float(rmse_by_name[exp.name].get("rmse_dynamique_C", detail["rmse_C"])), 3)
+            detail["erreur_plateau_C"] = round(float(rmse_by_name[exp.name].get("erreur_plateau_C", detail["rmse_C"])), 3)
             detail["rmse_capteurs_C"] = {
                 key: round(float(value), 3)
                 for key, value in rmse_by_name[exp.name]["rmse_capteurs_C"].items()
+            }
+            detail["rmse_dynamique_capteurs_C"] = {
+                key: round(float(value), 3)
+                for key, value in rmse_by_name[exp.name].get("rmse_dynamique_capteurs_C", {}).items()
+            }
+            detail["erreur_plateau_capteurs_C"] = {
+                key: round(float(value), 3)
+                for key, value in rmse_by_name[exp.name].get("erreur_plateau_capteurs_C", {}).items()
             }
         summary.append(detail)
 
@@ -846,6 +924,13 @@ def calibrate_combined(
         "nombre_essais": len(experiments),
         "rmse_avant_C": baseline_rmse,
         "rmse_apres_C": rmse_after,
+        "strategie_erreur": {
+            "perturbation": HYBRID_ERROR_WEIGHTS["perturbation"],
+            "tec": HYBRID_ERROR_WEIGHTS["tec"],
+            "plateau_fraction": PLATEAU_WINDOW_FRACTION,
+            "plateau_min_samples": PLATEAU_WINDOW_MIN_SAMPLES,
+            "temperature_clip_C": list(ABSOLUTE_TEMPERATURE_CLIP_C),
+        },
         "parametres": {
             "diffusivite_alpha": round(best["diffusivite_alpha"], 3),
             "coeff_convection_h": round(best["coeff_convection_h"], 8),
@@ -895,7 +980,7 @@ def calibrate_pwm_model(
 
     baseline_rmse = evaluate_rmse(tec_experiments, **baseline)
     if progress_callback is not None:
-        progress_callback(f"RMSE initiale (modèle PWM figé) : {baseline_rmse:.3f} °C")
+        progress_callback(f"Score hybride initial (modèle PWM figé) : {baseline_rmse:.3f} °C")
         progress_callback(f"Paramètres thermiques figés : alpha={baseline['diffusivite_alpha']:.3f}, h={baseline['coeff_convection_h']:.3e}, Cp={baseline['chaleur_massique_cp']:.4f}")
         progress_callback(f"Équation PWM initiale : {format_pwm_model_equation(baseline)}")
 
@@ -946,7 +1031,7 @@ def calibrate_pwm_model(
         if progress_callback is not None and (optimization_state["count"] <= 4 or is_new_best):
             progress_callback(
                 "Fit PWM "
-                f"{optimization_state['count']:03d} | RMSE={rmse:.3f} °C | "
+                f"{optimization_state['count']:03d} | score={rmse:.3f} °C | "
                 f"tau={trial['tau_tec_s']:.2f} s | {format_pwm_model_equation(trial)}"
             )
         return rmse**2 + regularization
@@ -986,9 +1071,19 @@ def calibrate_pwm_model(
         }
         if exp.name in rmse_by_name:
             detail["rmse_C"] = round(float(rmse_by_name[exp.name]["rmse_C"]), 3)
+            detail["rmse_dynamique_C"] = round(float(rmse_by_name[exp.name].get("rmse_dynamique_C", detail["rmse_C"])), 3)
+            detail["erreur_plateau_C"] = round(float(rmse_by_name[exp.name].get("erreur_plateau_C", detail["rmse_C"])), 3)
             detail["rmse_capteurs_C"] = {
                 key: round(float(value), 3)
                 for key, value in rmse_by_name[exp.name]["rmse_capteurs_C"].items()
+            }
+            detail["rmse_dynamique_capteurs_C"] = {
+                key: round(float(value), 3)
+                for key, value in rmse_by_name[exp.name].get("rmse_dynamique_capteurs_C", {}).items()
+            }
+            detail["erreur_plateau_capteurs_C"] = {
+                key: round(float(value), 3)
+                for key, value in rmse_by_name[exp.name].get("erreur_plateau_capteurs_C", {}).items()
             }
         summary.append(detail)
 
@@ -1001,6 +1096,13 @@ def calibrate_pwm_model(
         "nombre_essais": len(tec_experiments),
         "rmse_avant_C": baseline_rmse,
         "rmse_apres_C": rmse_after,
+        "strategie_erreur": {
+            "perturbation": HYBRID_ERROR_WEIGHTS["perturbation"],
+            "tec": HYBRID_ERROR_WEIGHTS["tec"],
+            "plateau_fraction": PLATEAU_WINDOW_FRACTION,
+            "plateau_min_samples": PLATEAU_WINDOW_MIN_SAMPLES,
+            "temperature_clip_C": list(ABSOLUTE_TEMPERATURE_CLIP_C),
+        },
         "equation_pwm": format_pwm_model_equation(best_for_eval),
         "parametres_fixes": {
             "diffusivite_alpha": round(best_for_eval["diffusivite_alpha"], 3),

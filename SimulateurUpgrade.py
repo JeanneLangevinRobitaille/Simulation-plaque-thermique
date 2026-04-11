@@ -29,6 +29,12 @@ except Exception:
 AUTO_CALIBRATION_JSON = Path(__file__).resolve().parent / "TestsAndData" / "parametres_calibres_combinee.json"
 AUTO_CALIBRATION_CHECK_INTERVAL_MS = 2000
 DEFAULT_SCREEN_GEOMETRY = QRect(0, 0, 1366, 768)
+TEC_CALIBRATION_HIDDEN_KEYS = (
+    "facteur_couplage_tec_chauffage",
+    "facteur_couplage_tec_refroidissement",
+    "zone_morte_pwm_chauffage_pct",
+    "zone_morte_pwm_refroidissement_pct",
+)
 
 
 def obtenir_geometrie_ecran_disponible(widget=None):
@@ -555,11 +561,29 @@ def ajuster_courbe_pwm_temperature_stable(paliers_pwm, temperatures_stables_C, d
     }
 
 
+def obtenir_zone_morte_pwm(params, valeur_signee):
+    valeur_signee = float(valeur_signee)
+    if valeur_signee < 0.0:
+        return float(np.clip(params.get("zone_morte_pwm_refroidissement_pct", 3.85), 0.0, 12.0))
+    return float(np.clip(params.get("zone_morte_pwm_chauffage_pct", 3.6), 0.0, 12.0))
+
+
+def obtenir_facteur_couplage_tec_selon_signe(valeur_signee, params):
+    valeur_signee = float(valeur_signee)
+    facteur_moyen = max(0.0, float(params.get("facteur_couplage_tec", 0.60)))
+    if valeur_signee < 0.0:
+        return max(0.0, float(params.get("facteur_couplage_tec_refroidissement", facteur_moyen)))
+    return max(0.0, float(params.get("facteur_couplage_tec_chauffage", facteur_moyen)))
+
+
 def convertir_pwm_vers_puissance(pwm_percent, params):
     pwm_signe = float(np.clip(pwm_percent, -100.0, 100.0))
-    amplitude = abs(pwm_signe)
-    degre = normaliser_degre_fit_pwm(params.get("degre_fit_pwm", 3))
+    zone_morte = obtenir_zone_morte_pwm(params, pwm_signe)
+    amplitude = max(0.0, abs(pwm_signe) - zone_morte)
+    if amplitude <= 1e-12:
+        return 0.0
 
+    degre = normaliser_degre_fit_pwm(params.get("degre_fit_pwm", 3))
     a0 = float(params.get("coef_pwm_a0", 1.734031e-02))
     a1 = float(params.get("coef_pwm_a1", 1.406312e-01))
     a2 = float(params.get("coef_pwm_a2", 9.947817e-04)) if degre >= 2 else 0.0
@@ -582,6 +606,7 @@ def convertir_puissance_vers_pwm(puissance_w, params):
         return 0.0
 
     signe = -1.0 if puissance_signee < 0 else 1.0
+    zone_morte = obtenir_zone_morte_pwm(params, puissance_signee)
     degre = normaliser_degre_fit_pwm(params.get("degre_fit_pwm", 3))
 
     a0 = float(params.get("coef_pwm_a0", 1.734031e-02))
@@ -620,7 +645,11 @@ def convertir_puissance_vers_pwm(puissance_w, params):
             amplitude = float(grille[np.argmin(np.abs(valeurs - puissance))])
 
     amplitude = float(np.clip(amplitude, 0.0, 100.0))
-    return signe * amplitude
+    if amplitude <= 1e-9:
+        return 0.0
+
+    amplitude_totale = float(np.clip(amplitude + zone_morte, 0.0, 100.0))
+    return signe * amplitude_totale
 
 
 def convertir_commande_tec_vers_puissance(valeur_commande, params):
@@ -735,6 +764,8 @@ class SimulationThread(QThread):
         self.debut_perturbation_s = max(0.0, float(data.get("debut_perturbation_s", 0.0)))
         self.duree_perturbation_s = max(0.0, float(data.get("duree_perturbation_s", float(data.get("temps_total_s", 150.0)))))
         self.facteur_couplage_tec = max(0.0, float(data.get("facteur_couplage_tec", 0.60)))
+        self.facteur_couplage_tec_chauffage = max(0.0, float(data.get("facteur_couplage_tec_chauffage", self.facteur_couplage_tec)))
+        self.facteur_couplage_tec_refroidissement = max(0.0, float(data.get("facteur_couplage_tec_refroidissement", self.facteur_couplage_tec)))
         self.constante_temps_tec_s = max(0.0, float(data.get("constante_temps_tec_s", 8.0)))
         self.puissance_resistance_effective = 0.0
         self.puissance_tec_effective = 0.0
@@ -758,6 +789,8 @@ class SimulationThread(QThread):
             self.commande_perturbation_voulue = float(nouvelle_tension)
             if nouveau_gain_tec is not None:
                 self.facteur_couplage_tec = max(0.0, float(nouveau_gain_tec))
+                self.facteur_couplage_tec_chauffage = self.facteur_couplage_tec
+                self.facteur_couplage_tec_refroidissement = self.facteur_couplage_tec
             if nouvelle_tau_tec is not None:
                 self.constante_temps_tec_s = max(0.0, float(nouvelle_tau_tec))
             if nouveau_debut_perturbation is not None:
@@ -951,7 +984,13 @@ class SimulationThread(QThread):
                     self.puissance_dynamique = puissance_manuelle
 
                 commande_perturbation = max(0.0, commande_perturbation)
-                puissance_tec_cible = facteur_couplage_tec * self.puissance_dynamique
+                params_tec_dyn = {
+                    "facteur_couplage_tec": facteur_couplage_tec,
+                    "facteur_couplage_tec_chauffage": self.facteur_couplage_tec_chauffage,
+                    "facteur_couplage_tec_refroidissement": self.facteur_couplage_tec_refroidissement,
+                }
+                facteur_tec_applique = obtenir_facteur_couplage_tec_selon_signe(self.puissance_dynamique, params_tec_dyn)
+                puissance_tec_cible = facteur_tec_applique * self.puissance_dynamique
                 coeff_lag_tec = min(1.0, pas_temps / constante_temps_tec_s) if constante_temps_tec_s > 0 else 1.0
                 coeff_lag_resistance = min(1.0, pas_temps / self.constante_temps_perturbation_s) if self.constante_temps_perturbation_s > 0 else 1.0
                 fin_perturbation_s = debut_perturbation_s + duree_perturbation_s
@@ -1163,6 +1202,7 @@ class MainWindow(QMainWindow):
         self._mode_commande_perturbation_ui = "voltage"
         self.chemin_calibration_auto = AUTO_CALIBRATION_JSON
         self._horodatage_calibration_auto = None
+        self.parametres_importes_hors_ui = {}
         
         definition_parametres = {
             "Contrôle Thermique": {"puissance_tec_W": 1.0},
@@ -1703,6 +1743,7 @@ class MainWindow(QMainWindow):
 
     def recuperer_parametres_interface(self):
         params = {cle: champ.value() for cle, champ in self.champs_saisie.items()}
+        params.update(getattr(self, "parametres_importes_hors_ui", {}))
         params["consigne_C"] = self.consigne_fixee_C
         params["mode_commande_tec"] = self.obtenir_mode_commande_tec()
         params["mode_commande_perturbation"] = self.obtenir_mode_commande_perturbation()
@@ -1824,8 +1865,11 @@ class MainWindow(QMainWindow):
         else:
             resume = f"Mode Watts : {commande:+.2f} W ≈ {pwm_equivalent:+.1f} % PWM"
 
-        gain_tec = float(params.get("facteur_couplage_tec", 1.0))
-        tau_tec = float(params.get("constante_temps_tec_s", 0.0))
+        gain_tec_plus = obtenir_facteur_couplage_tec_selon_signe(+1.0, params)
+        gain_tec_moins = obtenir_facteur_couplage_tec_selon_signe(-1.0, params)
+        tau_tec = float(params.get("constante_temps_tec_s", params.get("tau_tec_s", 0.0)))
+        zone_morte_plus = obtenir_zone_morte_pwm(params, +1.0)
+        zone_morte_moins = obtenir_zone_morte_pwm(params, -1.0)
         commande_perturb = float(self.champs_saisie["tension_resistance_V"].value())
         puissance_perturb = convertir_commande_perturbation_vers_puissance(commande_perturb, params)
         if params["mode_commande_perturbation"] == "watt":
@@ -1835,7 +1879,12 @@ class MainWindow(QMainWindow):
             resume_perturb = f"Perturbation : {commande_perturb:.2f} V → {puissance_perturb:.2f} W (R={resistance:.1f} Ω)"
 
         self.label_resume_commande_tec.setText(
-            resume + "\n" + texte_modele + f" | gain TEC={gain_tec:.2f}, τ={tau_tec:.1f}s" + "\n" + resume_perturb
+            resume
+            + "\n"
+            + texte_modele
+            + f" | gain TEC +={gain_tec_plus:.2f}, -={gain_tec_moins:.2f}, τ={tau_tec:.1f}s, zm+={zone_morte_plus:.2f}%, zm-={zone_morte_moins:.2f}%"
+            + "\n"
+            + resume_perturb
         )
 
     def obtenir_ram_processus_mo(self):
@@ -2137,8 +2186,17 @@ class MainWindow(QMainWindow):
         params_valides["mode_commande_perturbation"] = normaliser_mode_commande_perturbation(params.get("mode_commande_perturbation", "voltage"))
         params_valides["degre_fit_pwm"] = normaliser_degre_fit_pwm(params.get("degre_fit_pwm", 2))
         params_valides["commande_tec_valeur"] = float(params.get("commande_tec_valeur", params.get("puissance_tec_W", 0.0)))
-        params_valides["pwm_tec_pct"] = float(params.get("pwm_tec_pct", convertir_puissance_vers_pwm(params_valides["puissance_tec_W"], params_valides)))
         params_valides["commande_perturbation_valeur"] = float(params.get("commande_perturbation_valeur", params.get("tension_resistance_V", 0.0)))
+
+        facteur_tec_plus = float(params.get("facteur_couplage_tec_chauffage", params_valides.get("facteur_couplage_tec", 0.60)))
+        facteur_tec_moins = float(params.get("facteur_couplage_tec_refroidissement", params_valides.get("facteur_couplage_tec", 0.60)))
+        params_valides["facteur_couplage_tec_chauffage"] = facteur_tec_plus
+        params_valides["facteur_couplage_tec_refroidissement"] = facteur_tec_moins
+        params_valides["facteur_couplage_tec"] = float(params.get("facteur_couplage_tec", 0.5 * (facteur_tec_plus + facteur_tec_moins)))
+        params_valides["zone_morte_pwm_chauffage_pct"] = float(params.get("zone_morte_pwm_chauffage_pct", 3.6))
+        params_valides["zone_morte_pwm_refroidissement_pct"] = float(params.get("zone_morte_pwm_refroidissement_pct", 3.85))
+
+        params_valides["pwm_tec_pct"] = float(params.get("pwm_tec_pct", convertir_puissance_vers_pwm(params_valides["puissance_tec_W"], params_valides)))
         params_valides["puissance_perturbation_W"] = float(params.get("puissance_perturbation_W", convertir_commande_perturbation_vers_puissance(params_valides["commande_perturbation_valeur"], params_valides)))
 
         if params_valides["resolution_grille"] < 2:
@@ -2163,10 +2221,12 @@ class MainWindow(QMainWindow):
             raise ValueError("Le début de la perturbation doit être positif ou nul.")
         if params_valides["duree_perturbation_s"] < 0:
             raise ValueError("La durée de la perturbation doit être positive ou nulle.")
-        if params_valides["facteur_couplage_tec"] < 0:
-            raise ValueError("Le facteur de couplage TEC doit être positif ou nul.")
+        if params_valides["facteur_couplage_tec"] < 0 or params_valides["facteur_couplage_tec_chauffage"] < 0 or params_valides["facteur_couplage_tec_refroidissement"] < 0:
+            raise ValueError("Les facteurs de couplage TEC doivent être positifs ou nuls.")
         if params_valides["constante_temps_tec_s"] < 0:
             raise ValueError("La constante de temps TEC doit être positive ou nulle.")
+        if params_valides["zone_morte_pwm_chauffage_pct"] < 0 or params_valides["zone_morte_pwm_refroidissement_pct"] < 0:
+            raise ValueError("Les zones mortes PWM doivent être positives ou nulles.")
         if params_valides["mode_commande_tec"] == "pwm" and abs(params_valides["commande_tec_valeur"]) > 100:
             raise ValueError("Le PWM TEC doit rester entre -100 % et 100 %.")
 
@@ -2220,6 +2280,7 @@ class MainWindow(QMainWindow):
 
         nb_parametres_importes = 0
         champs_invalides = []
+        extras_importes = dict(getattr(self, "parametres_importes_hors_ui", {}))
         for cle, valeur in parametres.items():
             if cle == "commande_tec_valeur":
                 cle_cible = "puissance_tec_W"
@@ -2239,6 +2300,14 @@ class MainWindow(QMainWindow):
                     nb_parametres_importes += 1
                 except (TypeError, ValueError):
                     champs_invalides.append(cle)
+            elif cle_cible in TEC_CALIBRATION_HIDDEN_KEYS:
+                try:
+                    extras_importes[cle_cible] = float(valeur)
+                    nb_parametres_importes += 1
+                except (TypeError, ValueError):
+                    champs_invalides.append(cle)
+
+        self.parametres_importes_hors_ui = extras_importes
 
         if nb_parametres_importes == 0:
             raise ValueError("Aucun paramètre reconnu n'a été trouvé dans le fichier.")
