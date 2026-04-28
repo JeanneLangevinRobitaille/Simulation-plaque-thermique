@@ -146,6 +146,9 @@ def main():
     print(f"  Temp range: {np.nanmin(temps):.2f} – {np.nanmax(temps):.2f}")
 
 
+#flir0050: min = 22.7, max = 45.2
+#flir0051: min = 19.2, max = 29.1
+
 if __name__ == "__main__":
-    IMAGE = "FLIR0050.jpg"
+    IMAGE = "FLIR0050.jpeg"
     main()
