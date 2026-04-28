@@ -147,5 +147,5 @@ def main():
 
 
 if __name__ == "__main__":
-    IMAGE = "DC_0042.jpg"
+    IMAGE = "FLIR0050.jpg"
     main()
