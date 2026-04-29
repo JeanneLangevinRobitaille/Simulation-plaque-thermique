@@ -3,13 +3,13 @@ import pandas as pd
 import numpy as np
 
 a = pd.read_csv(
-    "TestsAndData/FLIR0050_temperatures.csv",
+    "TestingData/carte_erreur_thermique/FLIR0050_temperatures.csv",
     skiprows=5,
     header=None
     ).to_numpy()
 
 b = pd.read_csv(
-    "TestsAndData/FLIR0051_temperatures.csv",
+    "TestingData/carte_erreur_thermique/FLIR0051_temperatures.csv",
     skiprows=5,
     header=None
     ).to_numpy()
@@ -22,6 +22,5 @@ plt.imshow(a)
 
 plt.subplot(2,1,2)
 plt.imshow(b)
-
 
 plt.show()
