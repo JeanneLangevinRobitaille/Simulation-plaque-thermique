@@ -33,7 +33,8 @@ params = {
     "e_mm": tk.DoubleVar(value=1.7), #épaisseur
     "P_W": tk.DoubleVar(value=1.0),
     "t_s": tk.DoubleVar(value=150),
-    "res": tk.DoubleVar(value=50),
+    "resX": tk.DoubleVar(value=50),
+    "resY": tk.DoubleVar(value=50),
     "Tamb_C": tk.DoubleVar(value=20),
     "alpha": tk.DoubleVar(value=97.0),
     "rho": tk.DoubleVar(value=2.7e-3),
@@ -105,9 +106,10 @@ frame_sim = ttk.Frame(left_frame)
 frame_sim.pack(anchor="w")
 field(frame_sim, 0, "Puissance entrée", params["P_W"], "W")
 field(frame_sim, 1, "Temps simulation", params["t_s"], "s")
-field(frame_sim, 2, "Résolution", params["res"], "N x N")
-field(frame_sim, 3, "Température ambiante", params["Tamb_C"], "°C")
-field(frame_sim, 4, "Saut d'image", params["frames_showed"], "image sautée")
+field(frame_sim, 2, "Résolution x", params["resX"], "N x N")
+field(frame_sim, 3, "Résolution y", params["resY"], "N x N")
+field(frame_sim, 4, "Température ambiante", params["Tamb_C"], "°C")
+field(frame_sim, 5, "Saut d'image", params["frames_showed"], "image sautée")
 
 #Section paramètres physiques
 section_title(left_frame, "Paramètres physiques")
@@ -161,13 +163,13 @@ def simulation(data):
 
     #Espace de la plaque
     x = np.linspace(-data["l_mm"]/2, 
-                    data["l_mm"]/2, int(data["res"])+1)
-    y = np.linspace(0, data["L_mm"], int(data["res"])+1)
+                    data["l_mm"]/2, int(data["resX"])+1)
+    y = np.linspace(0, data["L_mm"], int(data["resY"])+1)
     X, Y = np.meshgrid(x, y)
 
     #Valeurs calculées simples
-    dx = data["l_mm"] / (data["res"]-1)
-    dy = data["L_mm"] / (data["res"]-1)
+    dx = data["l_mm"] / (data["resX"]-1)
+    dy = data["L_mm"] / (data["resY"]-1)
     dt = 0.2 * min(dx, dy)**2 / data["alpha"]
     dt = min(dt, 0.5/(data["alpha"]*((1/dx**2)+(1/dy**2))))
     volume_entree = (2*dx)*(2*dy)*data["e_mm"]
