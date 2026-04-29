@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
 import json
+import csv
 
 #Fenêtre de l'interface
 #==========================
@@ -163,8 +164,8 @@ def simulation(data):
 
     #Espace de la plaque
     x = np.linspace(-data["l_mm"]/2, 
-                    data["l_mm"]/2, int(data["resX"])+1)
-    y = np.linspace(0, data["L_mm"], int(data["resY"])+1)
+                    data["l_mm"]/2, int(data["resX"]))
+    y = np.linspace(0, data["L_mm"], int(data["resY"]))
     X, Y = np.meshgrid(x, y)
 
     #Valeurs calculées simples
@@ -298,6 +299,22 @@ def simulation(data):
     ligne_temperature.set_ylabel("T [°C]")
     ligne_temperature.legend()
 
+    def export_temperature_csv(filename, T, metadata=None):
+        import csv
+        
+        with open(filename, "w", newline="") as f:
+            writer = csv.writer(f)
+
+            # --- metadata (optional but matches camera format) ---
+            if metadata:
+                for line in metadata:
+                    writer.writerow([f"# {line}"])
+                writer.writerow([])
+
+            # --- temperature grid ---
+            for row in T:
+                writer.writerow([f"{val:.2f}" for val in row])
+
     def update(frame):
         """Fonction de mise à jour des graphiques et des listes d'informations"""
 
@@ -327,7 +344,17 @@ def simulation(data):
             if time_sim >= data["t_s"]:
                 running = False
                 print("Simulation finie")
+                export_temperature_csv(
+                    "simulation_temperatures_final.csv",
+                    T,
+                    metadata=[
+                        "Simulation output",
+                        f"Grid size: {T.shape[1]} x {T.shape[0]}",
+                        f"Tamb: {data['Tamb_C']} °C"
+                    ]
+                )
                 return
+            
             Tn = heatCalc(T, Tn, tec_coeff, res_coeff)
             T, Tn = Tn, T
             time_sim += dt
@@ -369,7 +396,7 @@ def simulation(data):
     
     data_out = data.copy()
     results_out = {"temps": temps, "T1": T1_vals, "T2": T2_vals, "T3": T3_vals}
-    
+
     plt.show()
 
 #Contrôle des fonctions de l'interface
@@ -452,7 +479,7 @@ def save_results():
             default=lambda x: x.item() if isinstance(x, np.generic) else x
         )
     print(f"Résultats sauvegardés dans {filepath}")
-    
+
 def input():
     print('Ajout de fichier par Input')
     filepath = filedialog.askopenfilename(
